@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+	<extension
+         id="application"
+         point="org.eclipse.core.runtime.applications">
+         <application id="ReduceCognitiveComplexity.application">
+         <run
+               class="neo.reducecognitivecomplexity.app.Application">
+         </run>
+         </application>
+   </extension>
+
+
+	<extension
+         id="applyCodeExtractions"
+         point="org.eclipse.core.runtime.applications">
+         <application id="ReduceCognitiveComplexity.applyCodeExtractions">
+         <run
+               class="neo.reducecognitivecomplexity.app.ApplyCodeExtractions">
+         </run>
+         </application>
+   </extension>
+ <extension
+       id="product"
+       point="org.eclipse.core.runtime.products">
+    <product
+          application="ReduceCognitiveComplexity.application"
+          name="ReduceCognitiveComplexityProduct">
+       <property
+             name="appName"
+             value="ReduceCognitiveComplexityProduct">
+       </property>
+    </product>
+ </extension>
+</plugin>
