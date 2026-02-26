@@ -146,7 +146,7 @@ public class Utils {
 	 * @return the parsed CompilationUnit.
 	 * @throws RuntimeException if there's a critical parsing error.
 	 */
-	static CompilationUnit parse(ICompilationUnit sourceFile) {
+	public static CompilationUnit parse(ICompilationUnit sourceFile) {
 		ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
 		parser.setKind(ASTParser.K_COMPILATION_UNIT);
 		parser.setSource(sourceFile);
@@ -1036,13 +1036,16 @@ public class Utils {
 
 		@Override
 		public boolean visit(MethodDeclaration method) {
-			// Note: toString() comparison on parameters is fragile but
-			// often necessary without full binding resolution.
-			if (method.getName().getIdentifier().equals(this.methodLookingFor)
-					&& method.parameters().toString().equals(methodParameters.toString())) {
-				methodDeclaration = method;
-				found = true;
-				return false; // Stop visiting
+			// If methodParameters is null, we only match by name (first overload found).
+			// Otherwise, we do the strict parameter toString() match.
+			if (method.getName().getIdentifier().equals(this.methodLookingFor)) {
+				if (this.methodParameters == null || 
+					method.parameters().toString().equals(methodParameters.toString())) {
+					
+					methodDeclaration = method;
+					found = true;
+					return false; // Stop visiting
+				}
 			}
 			return true;
 		}
