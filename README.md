@@ -12,7 +12,8 @@ This repository contains the evolving codebase for our refactoring research. If 
 
 * **Current Version (v2.0):** Features a new pipeline architecture and multiple solvers, including an exact Integer Linear Programming (ILP) solver. 
 * **Legacy Version (v1.0):** Features the original approach using an exhaustive search as solver.
-  * **Source Code:** Download the exact v1.0 release from the GitHub Releases page.
+  * **Paper**: R. Saborido, J. Ferrer, F. Chicano and E. Alba, "Automatizing Software Cognitive Complexity Reduction," in IEEE Access, vol. 10, pp. 11642-11656, 2022, doi: [10.1109/ACCESS.2022.3144743](https://ieeexplore.ieee.org/document/9686676). 
+  * **Source Code:** [Download the exact v1.0 release from the GitHub Releases page](https://github.com/rsain/SoftwareCognitiveComplexityReducer/releases/tag/IEEE_Access-Automatizing_Software_Cognitive_Complexity_Reduction).
 
 ## Features
 
