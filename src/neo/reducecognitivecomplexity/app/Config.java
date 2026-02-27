@@ -1,12 +1,15 @@
 package neo.reducecognitivecomplexity.app;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Represents the runtime configuration settings for the application.
  * <p>
  * This class encapsulates the input parameters provided by the user, such as
- * the target project name, the selected refactoring solver strategy, and output
- * preferences. It acts as an immutable data carrier and provides a factory
- * method to parse and validate raw command-line arguments.
+ * the target project name, the selected refactoring solver strategy, output
+ * preferences, and batch CSV processing targets. It acts as an immutable data 
+ * carrier and provides a factory method to parse and validate raw command-line arguments.
  * </p>
  */
 public class Config {
@@ -14,29 +17,29 @@ public class Config {
 	private final String solver;
 	private final boolean generateGraphs;
 	private final boolean valid;
+	private final String csvFilePath;
 
 	/**
 	 * Constructs a new Config instance.
 	 *
-	 * @param projectName    the name of the Eclipse project to analyze/refactor
-	 * @param solver         the identifier of the solver, or {@code null} if no
-	 *                       solver is selected
-	 * @param generateGraphs {@code true} to export .dot graph files for
-	 *                       visualization
-	 * @param valid          {@code true} if the configuration is valid and ready
-	 *                       for use
+	 * @param projectName    the name of the Eclipse project to analyze (null if in CSV mode)
+	 * @param solver         the identifier of the solver, or {@code null} if no solver is selected
+	 * @param generateGraphs {@code true} to export .dot graph files for visualization
+	 * @param valid          {@code true} if the configuration is valid and ready for use
+	 * @param csvFilePath    the path to the CSV file containing target methods to analyze (null if full project mode)
 	 */
-	public Config(String projectName, String solver, boolean generateGraphs, boolean valid) {
+	public Config(String projectName, String solver, boolean generateGraphs, boolean valid, String csvFilePath) {
 		this.projectName = projectName;
 		this.solver = solver;
 		this.generateGraphs = generateGraphs;
 		this.valid = valid;
+		this.csvFilePath = csvFilePath;
 	}
 
 	/**
-	 * Returns the name of the project targeted for analysis.
+	 * Returns the name of the project targeted for full analysis.
 	 *
-	 * @return the project name string, or {@code null} if the config is invalid
+	 * @return the project name string, or {@code null} if running in Batch CSV mode
 	 */
 	public String getProjectName() {
 		return projectName;
@@ -58,11 +61,6 @@ public class Config {
 
 	/**
 	 * Indicates whether extraction graphs should be exported to disk.
-	 * <p>
-	 * If {@code true}, the application will generate .dot files (full, conflict,
-	 * and no-conflict graphs) in the output directory. This is useful for debugging
-	 * the refactoring cache or visualizing complex method structures.
-	 * </p>
 	 *
 	 * @return {@code true} if graph generation is enabled
 	 */
@@ -72,63 +70,88 @@ public class Config {
 
 	/**
 	 * Checks if this configuration is valid.
-	 * <p>
-	 * This flag indicates whether the arguments were parsed successfully. If
-	 * {@code false}, the application should print usage instructions and exit.
-	 * </p>
 	 *
-	 * @return {@code true} if the arguments were parsed successfully, {@code false}
-	 *         otherwise
+	 * @return {@code true} if the arguments were parsed successfully, {@code false} otherwise
 	 */
 	public boolean isValid() {
 		return valid;
 	}
 
 	/**
+	 * Returns the file path for the batch CSV containing target methods.
+	 *
+	 * @return the absolute or relative path to the CSV file, or {@code null} if not provided
+	 */
+	public String getCsvFilePath() {
+		return csvFilePath;
+	}
+
+	/**
 	 * Parses the command-line arguments to create a {@link Config} object.
 	 * <p>
-	 * Supported argument formats:
+	 * Supported execution modes:
 	 * <ul>
-	 * <li><b>1 argument:</b> {@code [projectName]} <br>
-	 * (Solver defaults to {@code null}, Graphs default to {@code false})</li>
-	 * <li><b>2 arguments:</b> {@code [projectName] [solver]} <br>
-	 * (Graphs default to {@code false})</li>
-	 * <li><b>3 arguments:</b> {@code [projectName] [solver] [generateGraphs]} <br>
-	 * (e.g., {@code "MyProject" "none" "true"} to skip solving but generate
-	 * graphs)</li>
+	 * <li><b>Full Project Mode:</b> {@code [projectName] [solver?] [generateGraphs?]} <br>
+	 * Example: {@code "MyProject" "ILP" "true"}</li>
+	 * <li><b>Batch CSV Mode:</b> {@code -csv [path] [solver?] [generateGraphs?]} <br>
+	 * Example: {@code -csv "target_methods.csv" "ILP" "false"}</li>
 	 * </ul>
-	 * </p>
-	 * <p>
-	 * <b>Note:</b> If the solver argument is explicitly set to "none" or "null"
-	 * (case-insensitive), it is interpreted as {@code null}, effectively skipping
-	 * the solving phase.
 	 * </p>
 	 *
 	 * @param args the array of command-line arguments
 	 * @return a {@link Config} instance representing the parsed settings
 	 */
 	public static Config parse(String[] args) {
-		if (args.length == 1) {
-			// Case: Project only -> No solver, No graphs
-			return new Config(args[0], null, false, true);
-		} else if (args.length == 2) {
-			// Case: Project + Solver -> No graphs
-			return new Config(args[0], args[1], false, true);
-		} else if (args.length == 3) {
-			// Case: Full configuration
-			String projectName = args[0];
-			String solverArg = args[1];
-			boolean graphs = Boolean.parseBoolean(args[2]);
+		String parsedCsvPath = null;
+		List<String> positionalArgs = new ArrayList<>();
 
-			// Handle explicit "none" or "null" string as a null solver
-			if ("none".equalsIgnoreCase(solverArg) || "null".equalsIgnoreCase(solverArg)) {
-				solverArg = null;
+		// Extract flags and separate positional arguments
+		for (int i = 0; i < args.length; i++) {
+			if ("-csv".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+				parsedCsvPath = args[i + 1];
+				i++; // Skip the path value
+			} else {
+				positionalArgs.add(args[i]);
 			}
-
-			return new Config(projectName, solverArg, graphs, true);
 		}
 
-		// Invalid number of arguments
-		return new Config(null, null, false, false);
+		// Handle Batch CSV Mode
+		if (parsedCsvPath != null) {
+			String solv = null;
+			boolean genGraphs = false;
+
+			if (positionalArgs.size() >= 1) {
+				solv = parseSolverArg(positionalArgs.get(0));
+			}
+			if (positionalArgs.size() >= 2) {
+				genGraphs = Boolean.parseBoolean(positionalArgs.get(1));
+			}
+			// In CSV mode, project name is null because the CSV defines the projects
+			return new Config(null, solv, genGraphs, true, parsedCsvPath);
+		}
+
+		// Handle Full Project Scan Mode
+		if (positionalArgs.size() == 1) {
+			return new Config(positionalArgs.get(0), null, false, true, null);
+		} else if (positionalArgs.size() == 2) {
+			return new Config(positionalArgs.get(0), parseSolverArg(positionalArgs.get(1)), false, true, null);
+		} else if (positionalArgs.size() >= 3) {
+			return new Config(positionalArgs.get(0), parseSolverArg(positionalArgs.get(1)),
+					Boolean.parseBoolean(positionalArgs.get(2)), true, null);
+		}
+
+		// Invalid configuration (empty arguments)
+		return new Config(null, null, false, false, null);
+	}
+
+	/**
+	 * Helper method to safely parse the solver argument.
+	 * Treats "none" or "null" (case-insensitive) as a null solver.
+	 */
+	private static String parseSolverArg(String solverArg) {
+		if ("none".equalsIgnoreCase(solverArg) || "null".equalsIgnoreCase(solverArg)) {
+			return null;
+		}
+		return solverArg;
 	}
 }

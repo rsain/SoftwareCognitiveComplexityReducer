@@ -82,6 +82,36 @@ public class CsvResultWriter implements AutoCloseable {
 	}
 
 	/**
+	 * Escapes a field value for CSV format compliance, handling special characters
+	 * according to RFC 4180 standards.
+	 *
+	 * @param field the input string to be escaped for CSV format, may be null
+	 * @return a properly escaped CSV field value
+	 */
+	public static String escapeCSV(String field) {
+	    if (field == null) {
+	        return "";
+	    }
+	    
+	    // Normalize all types of line endings to spaces
+	    field = field.replace("\r\n", " ")  // Windows
+	                 .replace("\n", " ")     // Linux/Mac
+	                 .replace("\r", " ");     // Classic Mac
+	    
+	    // Check if field needs quoting (now only for delimiter or quotes)
+	    boolean needsQuoting = field.contains(";") || field.contains("\"");
+	    
+	    if (needsQuoting) {
+	        // Escape double quotes by doubling them
+	        field = field.replace("\"", "\"\"");
+	        return "\"" + field + "\"";
+	    }
+	    
+	    return field;
+	}
+
+	
+	/**
 	 * Closes the underlying file stream.
 	 * <p>
 	 * This method is called automatically when exiting a try-with-resources block.

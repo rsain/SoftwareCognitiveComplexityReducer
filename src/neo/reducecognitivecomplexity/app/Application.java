@@ -5,6 +5,7 @@ import java.util.logging.Logger;
 import org.eclipse.equinox.app.IApplication;
 import org.eclipse.equinox.app.IApplicationContext;
 
+import neo.reducecognitivecomplexity.core.BatchCsvProcessor;
 import neo.reducecognitivecomplexity.core.MethodRefactoringPipeline;
 import neo.reducecognitivecomplexity.core.eclipse.Utils;
 import neo.reducecognitivecomplexity.core.io.CsvResultWriter;
@@ -36,62 +37,79 @@ public class Application implements IApplication {
 	 * Starts the application.
 	 * <p>
 	 * This method is the equivalent of a standard Java {@code main()} method. It
-	 * sets up the environment, processes the input configuration, and triggers the
-	 * {@link MethodRefactoringPipeline}.
+	 * sets up the environment, processes the input configuration, and triggers 
+	 * either the targeted {@link BatchCsvProcessor} or a full project analysis.
 	 * </p>
 	 *
 	 * @param context the application context, containing arguments and launch info
 	 * @return {@link IApplication#EXIT_OK} if execution finishes successfully, or
-	 *         an error code otherwise
+	 * an error code otherwise
 	 * @throws Exception if a critical error occurs during execution
 	 */
 	@Override
 	public Object start(IApplicationContext context) throws Exception {
-		// Setup
+		// Setup Environment
 		Utils.initializeEnvironment();
-		Utils.disableAutoBuild();
+		Utils.initializeWorkspace(); // Ensures JDT UI prefs and workspace are fully loaded
+		Utils.disableAutoBuild();    // Prevents performance hits from automatic recompilation
 
-		// Config
-		// Retrieve arguments passed via the Eclipse Application launch config
-		String[] args = (String[]) context.getArguments().get("application.args");
-
-		// Parse arguments using our updated Config logic
+		// Retrieve & Parse Configuration
+		String[] args = (String[]) context.getArguments().get(IApplicationContext.APPLICATION_ARGS);
 		Config config = Config.parse(args);
 
 		if (!config.isValid()) {
 			LOGGER.severe(Constants.MESSAGE_WHEN_WRONG_ARGS);
-			// In Eclipse applications, returning an Integer usually signals the exit code
+			return -1; // Return error code
+		}
+
+		// Initialize Central Results Writer
+		// Note: The file name relies on the project name or a default "batch_results.csv"
+		String resultsFileName = config.getProjectName() != null ? 
+				config.getProjectName() + "_results.csv" : "batch_results.csv";
+		String outputCsvPath = Constants.OUTPUT_FOLDER + resultsFileName;
+		
+		// Try-with-resources ensures the writer is safely closed when the app finishes
+		try (CsvResultWriter resultWriter = new CsvResultWriter(outputCsvPath)) {
+			
+			// Execution Branching
+			if (config.getCsvFilePath() != null && !config.getCsvFilePath().isEmpty()) {
+				// --- MODE BATCH CSV SCAN ---
+				LOGGER.info("Starting Batch CSV Processing Mode...");
+				BatchCsvProcessor processor = new BatchCsvProcessor(config, resultWriter);
+				processor.processCsv(config.getCsvFilePath());
+			} else {
+				// --- MODE FULL PROJECT SCAN ---
+				LOGGER.info("Starting Full Project Analysis Mode...");
+				runProjectAnalysis(config, resultWriter); 
+			}
+
+		} catch (Exception e) {
+			LOGGER.severe("A critical error occurred during execution: " + e.getMessage());
+			e.printStackTrace();
 			return -1;
 		}
 
-		// Execution
-		runProjectAnalysis(config);
-
+		LOGGER.info("Application finished successfully.");
 		return IApplication.EXIT_OK;
 	}
 
 	/**
-	 * Orchestrates the analysis process for the specified project.
+	 * Orchestrates the full-project analysis process for the specified project.
 	 * <p>
 	 * This method:
 	 * <ul>
-	 * <li>Initializes the {@link CsvResultWriter} for output.</li>
-	 * <li>Scans the project for methods exceeding the complexity threshold.</li>
+	 * <li>Scans the project for methods exceeding the configured complexity threshold.</li>
 	 * <li>Feeds qualifying methods into the {@link MethodRefactoringPipeline}.</li>
 	 * </ul>
 	 * </p>
 	 *
-	 * @param config the configuration object containing the project name and solver
-	 *               settings
+	 * @param config       the configuration object containing the project name and solver settings
+	 * @param resultWriter the shared writer to output analysis metrics and refactoring results
 	 */
-	private void runProjectAnalysis(Config config) {
+	private void runProjectAnalysis(Config config, CsvResultWriter resultWriter) {
 		JavaMethodProcessor jmp = new JavaMethodProcessor();
 
-		// Use try-with-resources to ensure CSV is closed automatically
-		// NOTE: CsvResultWriter must implement AutoCloseable for this to work
-		try (CsvResultWriter resultWriter = new CsvResultWriter(
-				Constants.OUTPUT_FOLDER + config.getProjectName() + ".csv")) {
-
+		try {
 			// Initialize the pipeline with dependencies
 			// The pipeline will handle graph generation internally based on config
 			MethodRefactoringPipeline pipeline = new MethodRefactoringPipeline(config, resultWriter);
@@ -102,7 +120,8 @@ public class Application implements IApplication {
 			// Process methods that exceed the complexity threshold
 			if (result != null && result.unitComplexities != null) {
 				result.unitComplexities.forEach((unit, records) -> {
-					records.stream().filter(r -> r.complexity > Constants.COGNITIVE_COMPLEXITY_THRESHOLD)
+					records.stream()
+					        .filter(r -> r.complexity > Constants.COGNITIVE_COMPLEXITY_THRESHOLD)
 							.forEach(record -> pipeline.process(unit, record));
 				});
 			}
