@@ -209,9 +209,19 @@ public class Utils {
 				project.open(new NullProgressMonitor());
 			}
 
-			// 2. Refresh and Build
+			// 2. Refresh local file system
 			project.refreshLocal(IResource.DEPTH_INFINITE, new NullProgressMonitor());
-			project.build(IncrementalProjectBuilder.FULL_BUILD, new NullProgressMonitor());
+			
+			// 3. Trigger Build Safely
+			try {
+				// We attempt a full build to ensure JDT bindings are resolvable.
+				project.build(IncrementalProjectBuilder.FULL_BUILD, new NullProgressMonitor());
+			} catch (Throwable t) {
+				// We catch Throwable because headless M2E UI marker generation throws NoClassDefFoundError.
+				// This is harmless for AST parsing, so we simply log and ignore it.
+				LOGGER.warning("Ignored build error (common in headless Maven projects): " + t.getMessage());
+			}
+			
 			waitForBuild();
 
 			return project;
