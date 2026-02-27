@@ -93,8 +93,8 @@ public class Config {
 	 * <ul>
 	 * <li><b>Full Project Mode:</b> {@code [projectName] [solver?] [generateGraphs?]} <br>
 	 * Example: {@code "MyProject" "ILP" "true"}</li>
-	 * <li><b>Batch CSV Mode:</b> {@code -csv [path] [solver?] [generateGraphs?]} <br>
-	 * Example: {@code -csv "target_methods.csv" "ILP" "false"}</li>
+	 * <li><b>Batch CSV Mode:</b> {@code -batch [path] [solver?] [generateGraphs?]} <br>
+	 * Example: {@code -batch "target_methods.csv" "ILP" "false"}</li>
 	 * </ul>
 	 * </p>
 	 *
@@ -107,7 +107,7 @@ public class Config {
 
 		// Extract flags and separate positional arguments
 		for (int i = 0; i < args.length; i++) {
-			if ("-csv".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+			if ("-batch".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
 				parsedCsvPath = args[i + 1];
 				i++; // Skip the path value
 			} else {
