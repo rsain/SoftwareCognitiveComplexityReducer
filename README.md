@@ -2,8 +2,6 @@
 
 This Eclipse Plug-in automates the detection and refactoring of Java methods with high Cognitive Complexity. It functions as a pipeline that scans a target project, identifies methods exceeding a configured complexity threshold, and suggests "Extract Method" refactorings to improve maintainability.
 
-
-
 The tool is designed to run as a headless Eclipse Application, making it suitable for integration into build systems, CI/CD pipelines, or batch analysis workflows.
 
 ## Publications & Reproducibility
@@ -19,7 +17,7 @@ This repository contains the evolving codebase for our refactoring research. If 
 
 * **Automated Project Scanning:** Recursively parses the specified Eclipse project to locate Java methods.
 * **Complexity Filtering:** Automatically filters methods that exceed the defined cognitive complexity threshold.
-* **Multiple Refactoring Solvers:** Offers both exact optimization (ILP) and exhaustive search strategies to generate refactoring solutions.
+* **Multiple Refactoring Solvers:** Offers both exact optimization (ILP) and exhaustive search strategies to generate refactoring solutions. 
 * **Refactoring Pipeline:** Orchestrates the refactoring logic via `MethodRefactoringPipeline`, connecting the analysis phase with the selected solver.
 * **CSV Reporting:** Outputs a detailed CSV report containing the analysis results and refactoring outcomes for every processed method.
 * **Headless Execution:** Implements `IApplication` to run without the Eclipse UI overhead.
@@ -45,7 +43,11 @@ The application separates environment-specific configurations from core executio
 ### Properties File
 1. Locate the `config.template.properties` file in the project root.
 2. Copy and rename it to `config.properties`.
-3. Edit the file to specify your local output directory, complexity thresholds, and document your CPLEX native library path.
+3. Edit the file to specify your environment settings. The key properties include:
+   * `output.folder`: Absolute path to the directory where the output CSV files will be saved (e.g., `./output`).
+   * `complexity.threshold`: The cognitive complexity score required to trigger an analysis on a method (e.g., `15`).
+   * `cplex.native.library.path`: The absolute path to your local CPLEX native binaries (e.g., `/path/to/cplex/bin/your_os_arch`).
+   * `working.memory`: Maximum memory (in Megabytes) solvers as CPLEX are allowed to use. Setting this prevents `OutOfMemoryError` crashes during executions by forcing the solver to write to disk or abort if a single method's extraction model becomes too complex.
 
 ### Command-Line Arguments
 The `Config` class parses the runtime arguments passed to the Eclipse Application.
@@ -61,11 +63,11 @@ The `Config` class parses the runtime arguments passed to the Eclipse Applicatio
 1. **Create Run Configuration:** Go to **Run > Run Configurations...**, right-click **Eclipse Application**, and select **New**.
 2. **Main Tab Setup:** Name the configuration (e.g., `ReduceComplexity-Headless`). Select "Run an application" and choose `neo.reducecognitivecomplexity.app.Application`. Set the **Workspace Data** location to point to the workspace containing the target project to be analyzed.
 3. **Arguments Tab Setup:** * **Program Arguments:** Enter the target project and the chosen solver key (e.g., `MyLegacyProject ILP`).
-   * **VM Arguments:** You **must** define the native library path for CPLEX, alongside any memory adjustments. For example:
+   * **VM Arguments:** You **must** define the native library path for CPLEX, alongside sufficient JVM heap memory to parse large ASTs. For example:
      ```text
-     -Djava.library.path="/path/to/cplex/bin/your_os_arch" -Xmx4G
+     -Djava.library.path="/path/to/cplex/bin/your_os_arch" -Xmx8G
      ```
-     *(Note: Replace `/path/to/cplex/bin/your_os_arch` with your actual CPLEX bin directory).*
+     *(Note: Replace `/path/to/cplex/bin/your_os_arch` with your actual CPLEX bin directory. Ensure your `-Xmx` heap size is comfortably larger than the `working.memory` limit defined in your properties file).*
 4. **Working Directory Setup (Crucial):** Still in the **Arguments** tab, scroll down to the **Working directory** section. 
    * Change the selection from "Default" to **Other**.
    * Click the **Workspace...** button.
@@ -78,7 +80,7 @@ The application generates a CSV file in the output folder defined in your `confi
 
 **File Naming:** `[ProjectName].csv`
 
-**Content:** The CSV contains records for every method processed, detailing the method, location, initial Cognitive Complexity, suggested refactoring, and resulting complexity.
+**Content:** The CSV contains records for every method processed, detailing the method, location, initial Cognitive Complexity, suggested refactoring, solver execution metrics (runtime, memory status), and resulting complexity.
 
 ## Architecture
 
@@ -94,6 +96,7 @@ The project follows a pipeline architecture separating the application layer, co
 * **`solvers.SolverType`:** Defines the supported optimization strategies (`ILP`, `ES-LSF`, `ES-SSF`).
 
 ### 3. JDT Integration (`neo.reducecognitivecomplexity.core.jdt`)
+
 * **`JavaMethodProcessor.java`:** Uses Eclipse JDT to traverse the project's AST (Abstract Syntax Tree), calculate metrics, and identify methods requiring refactoring.
 
 ### 4. Input/Output (`neo.reducecognitivecomplexity.core.io`)
