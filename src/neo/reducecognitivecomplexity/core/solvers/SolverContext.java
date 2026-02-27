@@ -52,7 +52,7 @@ public class SolverContext implements AutoCloseable {
         CompilationUnitPathExtractor.PathComponents components = 
                 CompilationUnitPathExtractor.computeAllComponents(this.compilationUnit);
 
-        this.project = config.getProjectName();
+        this.project = components.getProjectName();
         this.folder = components.getSourceFolder();
         this.packageInProject = components.getPackageName();
         this.classInPackage = components.getClassName();
