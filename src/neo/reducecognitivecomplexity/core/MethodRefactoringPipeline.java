@@ -178,24 +178,22 @@ public class MethodRefactoringPipeline {
                 + Constants.FILE_EXTENSION_FOR_RESULTS;
         
         File file = new File(outputFilePath);
-        boolean isNewFile = !file.exists();
-        BufferedWriter bf = new BufferedWriter(new FileWriter(file, true));
-
-        if (isNewFile) {
-            StringBuilder header = new StringBuilder();
-            header.append("algorithm;project;folder;package;class;method;lineNumber;initialComplexity;solution;extractions;")
-                  .append("reductionComplexity;finalComplexity;")
-                  .append("minExtractedLOC;maxExtractedLOC;meanExtractedLOC;totalExtractedLOC;")
-                  .append("minParamsExtractedMethods;maxParamsExtractedMethods;meanParamsExtractedMethods;totalParamsExtractedMethods;")
-                  .append("minReductionOfCC;maxReductionOfCC;meanReductionOfCC;totalReductionOfCC;optimo;");
-            
-            // Append solver-specific headers (e.g., "generations" for GA, "gap" for ILP)
-            header.append(solver.getExtraCsvHeaders());
-            header.append("executionTime");
-            
-            bf.append(header.toString());
-            bf.newLine();
-        }
+        BufferedWriter bf = new BufferedWriter(new FileWriter(file, false));
+       
+        StringBuilder header = new StringBuilder();
+        header.append("algorithm;project;folder;package;class;method;lineNumber;initialComplexity;solution;extractions;")
+              .append("reductionComplexity;finalComplexity;")
+              .append("minExtractedLOC;maxExtractedLOC;meanExtractedLOC;totalExtractedLOC;")
+              .append("minParamsExtractedMethods;maxParamsExtractedMethods;meanParamsExtractedMethods;totalParamsExtractedMethods;")
+              .append("minReductionOfCC;maxReductionOfCC;meanReductionOfCC;totalReductionOfCC;optimo;");
+        
+        // Append solver-specific headers (e.g., "generations" for GA, "gap" for ILP)
+        header.append(solver.getExtraCsvHeaders());
+        header.append("executionTime");
+        
+        bf.append(header.toString());
+        bf.newLine();
+        
         return bf;
     }
 
