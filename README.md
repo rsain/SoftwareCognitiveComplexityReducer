@@ -2,13 +2,13 @@
 
 This Eclipse Plug-in automates the detection and refactoring of Java methods with high Cognitive Complexity. It functions as a pipeline that scans a target project, identifies methods exceeding a configured complexity threshold, and suggests "Extract Method" refactorings to improve maintainability.
 
-The tool is designed to run as a headless Eclipse Application, making it suitable for integration into build systems, CI/CD pipelines, or batch analysis workflows.
+The tool is designed to run as a headless Eclipse Application, making it suitable for integration into build systems, CI/CD pipelines, or large-scale batch analysis workflows.
 
 ## Publications & Reproducibility
 
 This repository contains the evolving codebase for our refactoring research. If you are looking for the source code associated with specific publications, please refer to the following versions:
 
-* **Current Version (v2.0):** Features a new pipeline architecture and multiple solvers, including an exact Integer Linear Programming (ILP) solver. 
+* **Current Version (v2.0):** Features a new pipeline architecture, batch processing capabilities, and multiple solvers, including an exact Integer Linear Programming (ILP) solver. 
 * **Legacy Version (v1.0):** Features the original approach using an exhaustive search as solver.
   * **Paper**: R. Saborido, J. Ferrer, F. Chicano and E. Alba, "Automatizing Software Cognitive Complexity Reduction," in IEEE Access, vol. 10, pp. 11642-11656, 2022, doi: [10.1109/ACCESS.2022.3144743](https://ieeexplore.ieee.org/document/9686676). 
   * **Source Code:** [Download the exact v1.0 release from the GitHub Releases page](https://github.com/rsain/SoftwareCognitiveComplexityReducer/releases/tag/IEEE_Access-Automatizing_Software_Cognitive_Complexity_Reduction).
@@ -16,6 +16,7 @@ This repository contains the evolving codebase for our refactoring research. If 
 ## Features
 
 * **Automated Project Scanning:** Recursively parses the specified Eclipse project to locate Java methods.
+* **Batch Processing Mode:** Bypasses full project scanning to process a predefined list of targeted methods from an input CSV, ideal for large empirical studies across multiple projects. 
 * **Complexity Filtering:** Automatically filters methods that exceed the defined cognitive complexity threshold.
 * **Multiple Refactoring Solvers:** Offers both exact optimization (ILP) and exhaustive search strategies to generate refactoring solutions. 
 * **Refactoring Pipeline:** Orchestrates the refactoring logic via `MethodRefactoringPipeline`, connecting the analysis phase with the selected solver.
@@ -26,7 +27,7 @@ This repository contains the evolving codebase for our refactoring research. If 
 
 * **Java Runtime:** JDK 11 or higher.
 * **Eclipse Platform:** Eclipse IDE for RCP and RAP Developers (4.20+) or any Eclipse distribution containing the Plugin Development Environment (PDE) and JDT.
-* **Workspace:** The target project to be analyzed must exist in an Eclipse workspace (different from the one where this plugin project is located).
+* **Workspace:** The target project(s) to be analyzed must exist in an Eclipse workspace (different from the one where this plugin project is located).
 * **IBM ILOG CPLEX:** The ILP solver requires CPLEX Optimization Studio (specifically the `cplex.jar` and its native system libraries). 
 
 ## Installation
@@ -52,7 +53,7 @@ The application separates environment-specific configurations from core executio
 ### Command-Line Arguments
 The `Config` class parses the runtime arguments passed to the Eclipse Application.
 
-1. **Project Name (Required):** The exact name of the target project in the external Eclipse workspace.
+1. **Execution Target (Required):** The exact name of the target project in the external Eclipse workspace, OR the path to an input CSV file if running in Batch Mode.
 2. **Solver Type (Optional):** The key selecting the desired algorithm for calculating the refactoring solution. Available options are:
    * `ILP`: Integer Linear Programming solver for exact optimization.
    * `ES-LSF`: Exhaustive Search heuristic that prioritizes longest sequences first.
@@ -61,8 +62,9 @@ The `Config` class parses the runtime arguments passed to the Eclipse Applicatio
 ## Usage: Running Headless
 
 1. **Create Run Configuration:** Go to **Run > Run Configurations...**, right-click **Eclipse Application**, and select **New**.
-2. **Main Tab Setup:** Name the configuration (e.g., `ReduceComplexity-Headless`). Select "Run an application" and choose `neo.reducecognitivecomplexity.app.Application`. Set the **Workspace Data** location to point to the workspace containing the target project to be analyzed.
-3. **Arguments Tab Setup:** * **Program Arguments:** Enter the target project and the chosen solver key (e.g., `MyLegacyProject ILP`).
+2. **Main Tab Setup:** Name the configuration (e.g., `ReduceComplexity-Headless`). Select "Run an application" and choose `neo.reducecognitivecomplexity.app.Application`. Set the **Workspace Data** location to point to the workspace containing the target project(s) to be analyzed.
+3. **Arguments Tab Setup:** * **Program Arguments:** * *Single Project Mode:* Enter the target project and the chosen solver key (e.g., `MyLegacyProject ILP`).
+     * *Batch Mode:* Enter the batch flag/file and the solver key (e.g., `-batch /path/to/input_methods.csv ILP`).
    * **VM Arguments:** You **must** define the native library path for CPLEX, alongside sufficient JVM heap memory to parse large ASTs. For example:
      ```text
      -Djava.library.path="/path/to/cplex/bin/your_os_arch" -Xmx8G
@@ -78,7 +80,7 @@ The `Config` class parses the runtime arguments passed to the Eclipse Applicatio
 
 The application generates a CSV file in the output folder defined in your `config.properties`. 
 
-**File Naming:** `[ProjectName].csv`
+**File Naming:** `[ProjectName].csv` (or `[BatchFileName]_results.csv` when in batch mode).
 
 **Content:** The CSV contains records for every method processed, detailing the method, location, initial Cognitive Complexity, suggested refactoring, solver execution metrics (runtime, memory status), and resulting complexity.
 
@@ -93,6 +95,7 @@ The project follows a pipeline architecture separating the application layer, co
 
 ### 2. Core Logic (`neo.reducecognitivecomplexity.core`)
 * **`MethodRefactoringPipeline.java`:** The central coordinator. It receives a method, determines the best refactoring strategy via the solver, and suggests the changes.
+* **`BatchCsvProcessor.java`:** Handles the iterative processing of pre-defined methods supplied via an input CSV, bypassing the need for a full project scan.
 * **`solvers.SolverType`:** Defines the supported optimization strategies (`ILP`, `ES-LSF`, `ES-SSF`).
 
 ### 3. JDT Integration (`neo.reducecognitivecomplexity.core.jdt`)
