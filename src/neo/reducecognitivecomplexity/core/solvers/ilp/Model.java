@@ -11,6 +11,7 @@ import neo.reducecognitivecomplexity.core.graphs.ExtractionVertex;
 import neo.reducecognitivecomplexity.core.graphs.Utils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ public class Model<V extends ExtractionVertex, E> {
     /** Array of X variables (1 per vertex). */
     private IloNumVar[] decisionVariables;
     /** Matrix of Z variables (linearization of X_j * X_i). */
-    private IloNumVar[][] zVariables;
+    private Map<ZVariableKey, IloNumVar> zVariables;
     
     /** Stores unique solution binary strings found by the solver. */
     public Set<String> uniqueSolutions;
@@ -89,25 +90,31 @@ public class Model<V extends ExtractionVertex, E> {
         this.uniqueSolutions = new HashSet<>();
 
         this.cplex = new IloCplex();
+        
+        // Mute the standard solver chatter (presolve, node logs, etc.)
+        cplex.setOut(null);
 
         // Initialize Variables
         this.numExtractions = graph.vertexSet().size();
-        this.zVariables = new IloNumVar[numExtractions][numExtractions];
+        this.zVariables = new HashMap<>(numExtractions * 10); // Capacity hint
+        
         
         // Define X variables (Boolean: 0 or 1)
         setDecisionVariables(cplex.boolVarArray(numExtractions));
 
-        // Define Z variables (Boolean: 0 or 1)
-        // Optimization Note: We strictly only need Z_ji where j is an ancestor of i.
-        // Currently initializing full N*N matrix.
+        // Define Z variables SPARSELY - only for ancestor relationships
         for (int i = 0; i < numExtractions; i++) {
-            zVariables[i] = cplex.boolVarArray(numExtractions);
-        }
-        
-        // Name the Z variables for debugging (.lp file readability)
-        for (int i = 0; i < numExtractions; i++) {
-            for (int j = 0; j < numExtractions; j++) {
-                zVariables[j][i].setName("Z_" + j + "_" + i);
+            ExtractionVertex vertexI = sortedVertices.get(i);
+            List<ExtractionVertex> ancestors = (List<ExtractionVertex>) Utils.previousVertices(graphNoConflicts, (V) vertexI);
+            
+            for (ExtractionVertex ancestor : ancestors) {
+                int j = vertexToIndexMap.get(ancestor);
+                
+                // Create Z variable only for this (j,i) pair
+                IloNumVar zVar = cplex.boolVar();
+                ZVariableKey key = new ZVariableKey(j, i);
+                zVar.setName(key.toString());
+                zVariables.put(key, zVar);
             }
         }
 
@@ -123,6 +130,16 @@ public class Model<V extends ExtractionVertex, E> {
         
         // 3. Objective Function
         addObjective();
+    }
+    
+    // Helper method to safely get Z variables
+    private IloNumVar getZVariable(int j, int i) {
+        IloNumVar z = zVariables.get(new ZVariableKey(j, i));
+        if (z == null) {
+            // This shouldn't happen if logic is correct
+            throw new IllegalStateException("Z variable for (" + j + "," + i + ") not found - are you sure " + j + " is an ancestor of " + i + "?");
+        }
+        return z;
     }
     
     /**
@@ -181,7 +198,7 @@ public class Model<V extends ExtractionVertex, E> {
                 sum += distance * contributors;
 
                 // Subtract the interaction term: -Sum * Z_ji
-                expr.addTerm(-sum, this.zVariables[indexJ][i]);
+                expr.addTerm(-sum, getZVariable(indexJ, i));
 
                 // Enforce Z variable logic (Linearization of AND)
                 IloLinearNumExpr zExpr = createLinearizationConstraint(indexJ, i);
@@ -205,7 +222,8 @@ public class Model<V extends ExtractionVertex, E> {
         IloLinearNumExpr expr = cplex.linearNumExpr();
         
         // Term: Z_ji
-        expr.addTerm(1, this.zVariables[j][i]);
+        IloNumVar zVar = getZVariable(j, i);
+        expr.addTerm(1, zVar);
         
         // Find vertices strictly between J and I
         List<ExtractionVertex> intermediateNodes = Utils.verticesBetweenTwoVertices(
@@ -220,7 +238,7 @@ public class Model<V extends ExtractionVertex, E> {
         // This forces Z_ji to be 0 if the path is broken (i.e., not all intermediates are selected)?
         // Or strictly links them based on path continuity.
         
-        expr.addTerm(pathSize, this.zVariables[j][i]);
+        expr.addTerm(pathSize, zVar);
         expr.setConstant(-pathSize);
         expr.addTerm(-1, this.decisionVariables[j]);
         
@@ -303,7 +321,6 @@ public class Model<V extends ExtractionVertex, E> {
      */
     public void showSolutionPop() throws IloException {
         int numSolutions = cplex.getSolnPoolNsolns();
-        System.out.println("Displaying " + numSolutions + " solutions from pool:");
         for (int i = 0; i < numSolutions; i++) {
             showSolution(i);
         }

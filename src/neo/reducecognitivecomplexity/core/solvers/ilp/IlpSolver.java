@@ -17,6 +17,7 @@ import neo.reducecognitivecomplexity.core.solvers.config.IlpConfig;
 
 import org.jgrapht.graph.DefaultWeightedEdge;
 
+import ilog.cplex.CpxException;
 import ilog.cplex.IloCplex;
 
 /**
@@ -59,26 +60,38 @@ public class IlpSolver implements RefactoringSolver {
             localBuild = true;
         }
 
-        // Initialize the CPLEX Model wrapper
-        // Note: Assumes 'Model' is a custom class wrapping IloCplex logic
-        Model<ExtractionVertex, DefaultWeightedEdge> m = new Model<>(
-                graphs.conflicts,
-                graphs.noConflicts,
-                graphs.full
-        );
+        Model<ExtractionVertex, DefaultWeightedEdge> m = null;
 
         try {
+            m = new Model<>(
+                    graphs.conflicts,
+                    graphs.noConflicts,
+                    graphs.full
+            );
+
+            // MUTE CPLEX to avoid console spam!
+            m.cplex.setOut(null);
+            m.cplex.setWarning(null);
+
             // Configure CPLEX parameters for numerical stability and timeouts
             m.cplex.setParam(IloCplex.DoubleParam.EpInt, 1E-9); // Integrality tolerance
             m.cplex.setParam(IloCplex.DoubleParam.EpGap, 1E-9); // Relative MIP gap tolerance
             m.cplex.setParam(IloCplex.DoubleParam.EpOpt, 1E-9); // Optimality tolerance
+            
+            // Limit time
             m.cplex.setParam(IloCplex.DoubleParam.TimeLimit, config.getTimeLimit());
-
+            
+            // Limit working memory
+            m.cplex.setParam(IloCplex.Param.WorkMem, config.getWorkingMemory());
+            
+            // Stop populating after finding 10 optimal solutions
+            m.cplex.setParam(IloCplex.IntParam.PopulateLim, 10);
+            
             // Export the mathematical model for debugging purposes
             String lpFileName = Constants.OUTPUT_FOLDER 
                     + ctx.generatePrefixForSolverFileNames() + ".lp";
             m.cplex.exportModel(lpFileName);
-
+            
             // Execute the solver
             m.cplex.populate();
 
@@ -87,10 +100,6 @@ public class IlpSolver implements RefactoringSolver {
             modelStatus = m.cplex.getStatus().toString();
             isOptimal = m.cplex.getStatus().equals(ilog.cplex.IloCplex.Status.Optimal);
 
-            LOGGER.info("NUMBER OF SOLUTIONS IN POOL: " + numberOfSolutions);
-            LOGGER.info("MODEL STATUS = " + modelStatus);
-
-            m.showSolutionPop();
             numberOfOptimalSolutions = m.showSolutionPopOptima();
 
             if (numberOfOptimalSolutions > 0) {
@@ -108,18 +117,24 @@ public class IlpSolver implements RefactoringSolver {
                 bestSolution.evaluate(cache);
 
                 // Log verbose details
-                System.out.println(bestSolution.toStringVerbose());
+                LOGGER.info(bestSolution.toStringVerbose());
             } else {
                 LOGGER.warning("NO SOLUTION FOUND for " + ctx.generatePrefixForSolverFileNames());
             }
 
+        } catch (CpxException ex) {
+            LOGGER.warning("CPLEX Exception for " + ctx.generatePrefixForSolverFileNames() + ": " + ex.getMessage());
+            modelStatus = neo.reducecognitivecomplexity.core.io.CsvResultWriter.escapeCSV("CPLEX Error: " + ex.getMessage());
+        } catch (Exception ex) {
+            LOGGER.warning("General Exception for " + ctx.generatePrefixForSolverFileNames() + ": " + ex.getMessage());
+            modelStatus = neo.reducecognitivecomplexity.core.io.CsvResultWriter.escapeCSV("Exception: " + ex.getMessage());
         } finally {
-            // Always clear the CPLEX model to release native memory resources
-            m.clearModel();
+            if (m != null && m.cplex != null) {
+                m.cplex.end(); // Wipes the native C++ memory cleanly.
+            }
 
             // If we built the graphs locally, we own them and must clear them.
-            // If passed from context, the pipeline manages their lifecycle.
-            if (localBuild) {
+            if (localBuild && graphs != null) {
                 graphs.clear();
             }
         }
@@ -175,7 +190,7 @@ public class IlpSolver implements RefactoringSolver {
             // Placeholder for no solution
             bf.append("NO SOLUTION!;");
             // Fill empty columns to match header structure
-            for (int i = 0; i < 16; i++) {
+            for (int i = 0; i < 15; i++) {
                 bf.append(Constants.CSV_SEPARATOR);
             }
         }

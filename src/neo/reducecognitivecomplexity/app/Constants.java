@@ -38,6 +38,26 @@ public class Constants {
 	 * </p>
 	 */
 	public static final int COGNITIVE_COMPLEXITY_THRESHOLD;
+	
+	/**
+	 * The maximum working RAM memory for solvers.
+	 * <p>
+	 * This value is loaded from the {@code working.memory} 
+	 * property in {@code config.properties}. If omitted or unreadable, it defaults 
+	 * to 2048 megabytes.
+	 * </p>
+	 */
+	public static final int WORKING_MEMORY;
+	
+	/**
+	 * The maximum running time in seconds for solvers.
+	 * <p>
+	 * This value is loaded from the {@code time.limit} 
+	 * property in {@code config.properties}. If omitted or unreadable, it defaults 
+	 * to 300 seconds.
+	 * </p>
+	 */
+	public static final int TIME_LIMIT;
 
 	/**
 	 * The estimated initial setup time (in minutes) required to address a Cognitive
@@ -157,63 +177,78 @@ public class Constants {
 	 * Error message displayed when the command-line arguments are invalid.
 	 */
 	public static final String MESSAGE_WHEN_WRONG_ARGS = "Invalid Arguments. Usage: [ProjectName] [Solver (optional)] [GenerateGraphs (optional: true/false)]";
-
+	
 	// =========================================================================
 	// STATIC INITIALIZATION
 	// =========================================================================
 	
-	// =========================================================================
-		// STATIC INITIALIZATION
-		// =========================================================================
-		
-		static {
-			Properties props = new Properties();
+	static {
+		Properties props = new Properties();
 
-			// 1. Define a safe fallback default (e.g., an 'output' folder in the current directory)
-			String defaultOutput = System.getProperty("user.dir") + File.separator + "output" + File.separator;
-			String loadedOutputFolder = defaultOutput;
+		// Define a safe fallback default (e.g., an 'output' folder in the current directory)
+		String defaultOutput = System.getProperty("user.dir") + File.separator + "output" + File.separator;
+		String loadedOutputFolder = defaultOutput;
 
-			// 2. Try to load the config.properties file from the project root
-			File configFile = new File("config.properties");
-			if (configFile.exists()) {
-				try (InputStream input = new FileInputStream(configFile)) {
-					props.load(input);
+		// Try to load the config.properties file from the project root
+		File configFile = new File("config.properties");
+		if (configFile.exists()) {
+			try (InputStream input = new FileInputStream(configFile)) {
+				props.load(input);
 
-					// Read the property, fallback to default if the key is missing
-					String configuredPath = props.getProperty("output.folder", defaultOutput);
+				// Read the property, fallback to default if the key is missing
+				String configuredPath = props.getProperty("output.folder", defaultOutput);
 
-					// Ensure it ends with a separator for safety when concatenating later
-					if (!configuredPath.endsWith(File.separator) && !configuredPath.endsWith("/")) {
-						configuredPath += File.separator;
-					}
-					loadedOutputFolder = configuredPath;
-
-				} catch (IOException ex) {
-					LOGGER.warning("Could not read config.properties. Using default paths.");
+				// Ensure it ends with a separator for safety when concatenating later
+				if (!configuredPath.endsWith(File.separator) && !configuredPath.endsWith("/")) {
+					configuredPath += File.separator;
 				}
-			} else {
-				LOGGER.info("No config.properties found. Using default paths. You can copy config.template.properties to create one.");
-			}
+				loadedOutputFolder = configuredPath;
 
-			// 3. Assign the loaded (or default) value to the final variable
-			OUTPUT_FOLDER = loadedOutputFolder;
-
-			// 4. Ensure the output directory exists and log its absolute path
-			File outDir = new File(OUTPUT_FOLDER);
-			if (!outDir.exists()) {
-				outDir.mkdirs();
+			} catch (IOException ex) {
+				LOGGER.warning("Could not read config.properties. Using default paths.");
 			}
-			
-			// Print the exact location to the console so the user always knows where it is
-			LOGGER.info("Output folder resolved to: " + outDir.getAbsolutePath());
-
-			// Load the integer, defaulting to 15 if missing or unreadable
-			int threshold = 15;
-			try {
-				threshold = Integer.parseInt(props.getProperty("complexity.threshold", "15"));
-			} catch (NumberFormatException e) {
-				System.err.println("Invalid threshold in config. Using default: 15");
-			}
-			COGNITIVE_COMPLEXITY_THRESHOLD = threshold;
+		} else {
+			LOGGER.info("No config.properties found. Using default paths. You can copy config.template.properties to create one.");
 		}
+
+		// Assign the loaded (or default) value to the final variable
+		OUTPUT_FOLDER = loadedOutputFolder;
+
+		// Ensure the output directory exists and log its absolute path
+		File outDir = new File(OUTPUT_FOLDER);
+		if (!outDir.exists()) {
+			outDir.mkdirs();
+		}
+		
+		// Print the exact location to the console so the user always knows where it is
+		LOGGER.info("Output folder resolved to: " + outDir.getAbsolutePath());
+
+		// Load the default cognitive complexity threshold, defaulting to 15 if missing or unreadable
+		int threshold = 15;
+		try {
+			threshold = Integer.parseInt(props.getProperty("complexity.threshold", "15"));
+		} catch (NumberFormatException e) {
+			LOGGER.severe("Invalid cognitive complexity threshold in config. Using default: 15");
+		}
+		COGNITIVE_COMPLEXITY_THRESHOLD = threshold;
+		
+		// Parse the working memory in megabytes, defaulting to 2048 MB (2 GB) if not found
+	    int workingMemory = 2028;
+	    try {
+	    	Integer.parseInt(props.getProperty("working.memory", "2048"));
+	    } catch (NumberFormatException e) {
+	    	LOGGER.severe("Invalid working memory value in config. Using default: 2048");
+		}
+		WORKING_MEMORY = workingMemory;
+		
+		// Parse the time limit in seconds, defaulting to 300 seconds if not found
+	    int timeLimit = 300;
+	    try {
+	    	Integer.parseInt(props.getProperty("time.limit", "300"));
+	    } catch (NumberFormatException e) {
+			LOGGER.severe("Invalid time limit value in config. Using default: 300");
+		}
+		TIME_LIMIT = timeLimit;
+	    
+	}
 }
