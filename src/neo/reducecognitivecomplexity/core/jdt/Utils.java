@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IWorkspace;
@@ -42,9 +44,13 @@ import org.eclipse.jdt.core.dom.Statement;
 import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
 import org.eclipse.jdt.core.dom.SwitchStatement;
 import org.eclipse.jdt.core.dom.WhileStatement;
+import org.eclipse.jdt.core.refactoring.CompilationUnitChange;
 import org.eclipse.jdt.internal.corext.refactoring.code.ExtractMethodRefactoring;
+import org.eclipse.jface.text.Document;
 import org.eclipse.ltk.core.refactoring.Change;
+import org.eclipse.ltk.core.refactoring.CompositeChange;
 import org.eclipse.ltk.core.refactoring.RefactoringStatus;
+import org.eclipse.text.edits.TextEdit;
 
 import neo.reducecognitivecomplexity.app.Constants;
 import neo.reducecognitivecomplexity.core.ExtractionTextRange;
@@ -64,6 +70,8 @@ import neo.reducecognitivecomplexity.core.ExtractionTextRange;
  */
 @SuppressWarnings("restriction")
 public class Utils {
+	
+	private static final Logger LOGGER = Logger.getLogger(Utils.class.getName());
 
 	/**
 	 * Temporal name used by the oracle when testing if a code extraction into a new
@@ -146,7 +154,7 @@ public class Utils {
 	 * @return the parsed CompilationUnit.
 	 * @throws RuntimeException if there's a critical parsing error.
 	 */
-	static CompilationUnit parse(ICompilationUnit sourceFile) {
+	public static CompilationUnit parse(ICompilationUnit sourceFile) {
 		ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
 		parser.setKind(ASTParser.K_COMPILATION_UNIT);
 		parser.setSource(sourceFile);
@@ -217,123 +225,219 @@ public class Utils {
 	}
 
 	/**
-	 * Refactor a compilation unit extracting the given source code as a new method.
+	 * Refactors a compilation unit by extracting the specified source code into a new method.
 	 * <p>
-	 * This method uses the Eclipse JDT {@link ExtractMethodRefactoring} class to
-	 * perform the heavy lifting. It handles checking initial and final conditions
-	 * (pre-conditions).
+	 * This method uses the Eclipse JDT {@link ExtractMethodRefactoring} class to perform 
+	 * the heavy lifting. It evaluates both initial and final preconditions. If running in 
+	 * {@code simulation} mode, it applies the changes to a temporary in-memory document 
+	 * to verify compilation viability without triggering expensive workspace resource events.
 	 * </p>
 	 *
 	 * @param originalUnit        The compilation unit under processing.
 	 * @param selectionStart      The offset of the start of the code to refactor.
 	 * @param selectionLength     The length of the code to refactor.
-	 * @param extractedMethodName Name of the new method.
-	 * @param simulation          If true, performs the refactoring to gather
-	 *                            metrics but undoes it immediately.
-	 * @return {@link CodeExtractionMetrics} containing feasibility, LOC, and
-	 *         parameters of the extracted method.
+	 * @param extractedMethodName Name of the new method to be created.
+	 * @param simulation          If {@code true}, performs the refactoring strictly in-memory 
+	 * to gather metrics and verify compilation, bypassing workspace edits.
+	 * @return A {@link CodeExtractionMetrics} object containing the feasibility, lines of code, 
+	 * parameters of the extracted method, and the generated JDT {@link Change} objects.
 	 */
 	public static CodeExtractionMetrics extractCode(CompilationUnit originalUnit, int selectionStart,
-			int selectionLength, String extractedMethodName, boolean simulation) {
+	        int selectionLength, String extractedMethodName, boolean simulation) {
 
-		List<Change> changes = new ArrayList<>();
-		List<Change> undoChanges = new ArrayList<>();
-		boolean feasible = true;
-		String resultOfRefactoring = "";
-		boolean refactoringApplied = false;
-		int numberOfExtractedLinesOfCode = 0;
-		int numberOfParametersInExtractedMethod = 0;
-		IProgressMonitor npm = new NullProgressMonitor();
-		ICompilationUnit workingCopy = null;
+	    List<Change> changes = new ArrayList<>();
+	    List<Change> undoChanges = new ArrayList<>();
+	    boolean feasible = true;
+	    String resultOfRefactoring = "";
+	    boolean refactoringApplied = false;
+	    int numberOfExtractedLinesOfCode = 0;
+	    int numberOfParametersInExtractedMethod = 0;
+	    IProgressMonitor npm = new NullProgressMonitor();
+	    ICompilationUnit workingCopy = null;
+	    int selectionEnd = selectionStart + selectionLength;
+	    
+	    MethodDeclaration md = getOutermostMethodDeclaration(originalUnit, selectionStart, selectionLength);
+	    // Safe fallback in case the text selection is completely outside any method
+	    String targetMethodName = (md != null && md.getName() != null) ? md.getName().getIdentifier() : "UnknownMethod";
 
-		System.out.println("Processing Method Extraction: " + extractedMethodName);
-		long startTime = System.currentTimeMillis();
-		long runtime = startTime;
+	    long startTime = System.currentTimeMillis();
+	    long runtime = startTime;
 
-		try {
-			// Convert AST to Java Model (Working Copy) needed for Refactoring
-			workingCopy = getICompilationUnit(originalUnit).getWorkingCopy(npm);
+	    try {
+	        // Convert AST to Java Model (Working Copy) needed for Refactoring definitions
+	        workingCopy = getICompilationUnit(originalUnit).getWorkingCopy(npm);
 
-			System.out.println(">> Creating ExtractMethodRefactoring...");
-			ExtractMethodRefactoring refactoring = new ExtractMethodRefactoring(workingCopy, selectionStart,
-					selectionLength);
-			refactoring.setMethodName(extractedMethodName);
+	        ExtractMethodRefactoring refactoring = new ExtractMethodRefactoring(workingCopy, selectionStart,
+	                selectionLength);
+	        refactoring.setMethodName(extractedMethodName);
 
-			System.out.println(">> Checking Initial Conditions...");
-			RefactoringStatus status = refactoring.checkInitialConditions(npm);
+	        RefactoringStatus status = refactoring.checkInitialConditions(npm);
 
-			if (status.isOK()) {
-				System.out.println(">> Initial Conditions OK. Checking Final Conditions...");
-				status = refactoring.checkFinalConditions(npm);
+	        if (status.isOK()) {
+	            status = refactoring.checkFinalConditions(npm);
 
-				if (status.isOK()) {
-					System.out.println(">> Final Conditions OK. Performing Change...");
-					resultOfRefactoring = "OK";
+	            if (status.isOK()) {
+	                resultOfRefactoring = "OK";
 
-					numberOfExtractedLinesOfCode = numberOfLinesOfCode(originalUnit, selectionStart, selectionLength);
-					numberOfParametersInExtractedMethod = refactoring.getParameterInfos().size();
-					refactoring.setReplaceDuplicates(false);
+	                numberOfExtractedLinesOfCode = numberOfLinesOfCode(originalUnit, selectionStart, selectionLength);
+	                numberOfParametersInExtractedMethod = refactoring.getParameterInfos().size();
+	                refactoring.setReplaceDuplicates(false);
 
-					Change c = refactoring.createChange(npm);
-					Change undo = c.perform(npm);
-					runtime = System.currentTimeMillis() - startTime;
+	                // Create the change but DO NOT perform it yet
+	                Change c = refactoring.createChange(npm);
 
-					// Verify compilation after change
-					CompilationUnit astAfter = parse(workingCopy);
-					boolean compilationErrors = builtWithCompilationErrors(astAfter);
+	                if (simulation) {
+	                    // =================================================================
+	                    // FAST IN-MEMORY SIMULATION (No Workspace Events Triggered)
+	                    // =================================================================
+	                    TextEdit edit = extractTextEdit(c);
+	                    
+	                    if (edit == null) {
+	                        feasible = false;
+	                        resultOfRefactoring = "Failed to extract TextEdit for simulation.";
+	                    } else {
+	                        // Apply the edit to a raw String document
+	                        Document document = new Document(workingCopy.getSource());
+	                        edit.apply(document);
 
-					if (compilationErrors) {
-						System.out.println(">> Refactoring failed compilation check.");
-						resultOfRefactoring = "Compilation unit does not compile after method extraction.";
-						feasible = false;
-						undo.perform(npm); // Revert
-					} else {
-						System.out.println(">> Refactoring SUCCESS.");
-						changes.add(c);
-						undoChanges.add(undo);
-						if (simulation) {
-							undo.perform(npm); // Revert if simulation
-						}
-					}
-					refactoringApplied = !compilationErrors && !simulation;
-				} else {
-					feasible = false;
-					runtime = System.currentTimeMillis() - startTime;
-					resultOfRefactoring = status.getEntryAt(0).getMessage();
-					System.out.println(">> Final Conditions Failed: " + resultOfRefactoring);
-				}
-			} else {
-				feasible = false;
-				runtime = System.currentTimeMillis() - startTime;
-				resultOfRefactoring = status.getEntryAt(0).getMessage();
-				System.out.println(">> Initial Conditions Failed: " + resultOfRefactoring);
-			}
+	                        // Parse the updated string back into a temporary AST to check for errors
+	                        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+	                        parser.setSource(document.get().toCharArray());
+	                        parser.setProject(workingCopy.getJavaProject());
+	                        parser.setUnitName(workingCopy.getElementName());
+	                        parser.setResolveBindings(true);
+	                        parser.setBindingsRecovery(true);
+	                        
+	                        CompilationUnit astAfter = (CompilationUnit) parser.createAST(npm);
+	                        boolean compilationErrors = builtWithCompilationErrors(astAfter);
 
-		} catch (IllegalArgumentException | CoreException e) {
-			System.err.println("ERROR while refactoring: " + e.getMessage());
-			e.printStackTrace();
-			feasible = false;
-			runtime = System.currentTimeMillis() - startTime;
-			resultOfRefactoring = "Exception: " + e.getMessage();
-			// Note: System.exit(1) removed for library safety; throw exception or log
-			// instead in production
-		} finally {
-			if (workingCopy != null) {
-				try {
-					workingCopy.discardWorkingCopy();
-				} catch (Exception e) {
-					/* ignore */ }
-			}
-		}
+	                        if (compilationErrors) {
+	                            resultOfRefactoring = "Compilation unit does not compile after method extraction.";
+	                            feasible = false;
+	                        } else {
+	                            changes.add(c);
+	                            // undoChanges remains empty because nothing was actually applied
+	                        }
+	                    }
+	                } else {
+	                    // =================================================================
+	                    // ACTUAL WORKSPACE MODIFICATION (Final Refactoring Application)
+	                    // =================================================================
+	                    Change undo = c.perform(npm);
+	                    
+	                    // Verify compilation after change on the real working copy
+	                    CompilationUnit astAfter = parse(workingCopy);
+	                    boolean compilationErrors = builtWithCompilationErrors(astAfter);
 
-		return new CodeExtractionMetrics(feasible, resultOfRefactoring, refactoringApplied,
-				numberOfExtractedLinesOfCode, numberOfParametersInExtractedMethod, changes, undoChanges, runtime);
+	                    if (compilationErrors) {
+	                        resultOfRefactoring = "Compilation unit does not compile after method extraction.";
+	                        feasible = false;
+	                        undo.perform(npm); // Revert the real change
+	                    } else {
+	                        changes.add(c);
+	                        undoChanges.add(undo);
+	                        refactoringApplied = true;
+	                    }
+	                }
+	            } else {
+	                feasible = false;
+	                resultOfRefactoring = status.getEntryWithHighestSeverity().getMessage();
+	                LOGGER.log(Level.WARNING, "Final conditions failed for method {0} ([{1}, {2}]): {3}", 
+	                        new Object[]{targetMethodName, selectionStart, selectionEnd, resultOfRefactoring});
+	            }
+	        } else {
+	            feasible = false;
+	            resultOfRefactoring = status.getEntryWithHighestSeverity().getMessage();
+	            LOGGER.log(Level.WARNING, "Initial conditions failed for method {0} ([{1}, {2}]): {3}", 
+	                    new Object[]{targetMethodName, selectionStart, selectionEnd, resultOfRefactoring});
+	        }
+
+	    } catch (Exception e) {
+	        feasible = false;
+	        resultOfRefactoring = "Exception: " + e.getMessage();
+	        LOGGER.log(Level.WARNING, "Error while refactoring method {0} ([{1}, {2}]): {3}", 
+	                new Object[]{targetMethodName, selectionStart, selectionEnd, e.getMessage()});
+	        // Log the actual stack trace via the logger instead of standard out
+	        LOGGER.log(Level.FINE, "Stack trace:", e);
+	    } finally {
+	        runtime = System.currentTimeMillis() - startTime;
+	        if (workingCopy != null) {
+	            try {
+	                workingCopy.discardWorkingCopy();
+	            } catch (Exception e) {
+	                /* gracefully ignore */ 
+	            }
+	        }
+	    }
+
+	    return new CodeExtractionMetrics(feasible, resultOfRefactoring, refactoringApplied,
+	            numberOfExtractedLinesOfCode, numberOfParametersInExtractedMethod, changes, undoChanges, runtime);
+	}
+
+	/**
+	 * Safely extracts the {@link TextEdit} instructions from an Eclipse {@link Change} object.
+	 * <p>
+	 * The JDT framework can sometimes wrap file changes inside a {@link CompositeChange} 
+	 * depending on the complexity of the refactoring (e.g., updating imports alongside the extraction).
+	 * This helper recursively searches the change tree for the actual compilation unit edit.
+	 * </p>
+	 *
+	 * @param change The JDT change object generated by the refactoring framework.
+	 * @return The core {@link TextEdit} representing the source code modifications, or {@code null} if not found.
+	 */
+	private static TextEdit extractTextEdit(Change change) {
+	    if (change instanceof CompilationUnitChange) {
+	        return ((CompilationUnitChange) change).getEdit();
+	    } else if (change instanceof CompositeChange) {
+	        for (Change child : ((CompositeChange) change).getChildren()) {
+	            if (child instanceof CompilationUnitChange) {
+	                return ((CompilationUnitChange) child).getEdit();
+	            }
+	        }
+	    }
+	    return null;
 	}
 
 	// =========================================================================
 	// AST HELPERS & METRICS
 	// =========================================================================
 
+	/**
+	 * Finds the outermost {@link MethodDeclaration} enclosing a specific text selection 
+	 * within a compilation unit.
+	 * <p>
+	 * This method maps the given text selection to its tightest covering AST node and 
+	 * traverses up the parent chain to the root of the AST. It is particularly useful 
+	 * for identifying the top-level method context when a selection occurs inside 
+	 * nested structures, such as anonymous inner classes, lambdas, or local types.
+	 * </p>
+	 *
+	 * @param originalUnit    The parsed AST compilation unit representing the source file.
+	 * @param selectionStart  The starting character offset of the text selection.
+	 * @param selectionLength The number of characters in the text selection.
+	 * @return The outermost {@link MethodDeclaration} containing the selection, or 
+	 * {@code null} if the selection is not located within any method.
+	 */
+	public static MethodDeclaration getOutermostMethodDeclaration(CompilationUnit originalUnit, int selectionStart, int selectionLength) {
+	    
+	    // 1. Map the text selection to the tightest covering ASTNode
+	    ASTNode node = NodeFinder.perform(originalUnit, selectionStart, selectionLength);
+	    
+	    MethodDeclaration outermostMethod = null;
+	    
+	    // 2. Traverse up the parent chain all the way to the root
+	    while (node != null) {
+	        if (node instanceof MethodDeclaration) {
+	            // Update our reference every time we hit a method declaration
+	            outermostMethod = (MethodDeclaration) node;
+	        }
+	        node = node.getParent();
+	    }
+	    
+	    // 3. Return the last one we found (or null if the selection wasn't inside a method)
+	    return outermostMethod;
+	}
+	
 	/**
 	 * Safely retrieves the {@link ICompilationUnit} (Java Element) from an AST
 	 * {@link CompilationUnit}. * @param astRoot The AST root node.
@@ -1036,13 +1140,16 @@ public class Utils {
 
 		@Override
 		public boolean visit(MethodDeclaration method) {
-			// Note: toString() comparison on parameters is fragile but
-			// often necessary without full binding resolution.
-			if (method.getName().getIdentifier().equals(this.methodLookingFor)
-					&& method.parameters().toString().equals(methodParameters.toString())) {
-				methodDeclaration = method;
-				found = true;
-				return false; // Stop visiting
+			// If methodParameters is null, we only match by name (first overload found).
+			// Otherwise, we do the strict parameter toString() match.
+			if (method.getName().getIdentifier().equals(this.methodLookingFor)) {
+				if (this.methodParameters == null || 
+					method.parameters().toString().equals(methodParameters.toString())) {
+					
+					methodDeclaration = method;
+					found = true;
+					return false; // Stop visiting
+				}
 			}
 			return true;
 		}
