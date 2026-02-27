@@ -195,40 +195,55 @@ public class RefactoringCache {
 			SimpleDirectedWeightedGraph<ExtractionVertex, DefaultWeightedEdge> graphWithoutConflicts,
 			SimpleGraph<ExtractionVertex, DefaultEdge> conflictsGraph) {
 
+		Map<ExtractionTextRange, CodeExtractionMetrics> feasibleRefactorings;
+		List<ExtractionTextRange> offsetPairs;
+		DefaultWeightedEdge edge;
+		SimpleDirectedWeightedGraph<ExtractionVertex, DefaultWeightedEdge> result;
+		ExtractionVertex root = neo.reducecognitivecomplexity.core.graphs.Utils.getRootForGraphAssociatedToMethodBody(this.methodDeclaration);
+
 		neo.reducecognitivecomplexity.core.graphs.Utils.clear(graphWithoutConflicts);
 		neo.reducecognitivecomplexity.core.graphs.Utils.clear(conflictsGraph);
 
-		Map<ExtractionTextRange, CodeExtractionMetrics> feasibleRefactorings = Utils.filterByValue(cache,
-				CodeExtractionMetrics::isFeasible);
-		List<ExtractionTextRange> offsetPairs = new ArrayList<>(feasibleRefactorings.keySet());
+		feasibleRefactorings = Utils.filterByValue(cache, value -> value.isFeasible());
+		offsetPairs = new ArrayList<ExtractionTextRange>(feasibleRefactorings.keySet());
 
-		SimpleDirectedWeightedGraph<ExtractionVertex, DefaultWeightedEdge> result = new SimpleDirectedWeightedGraph<>(
-				DefaultWeightedEdge.class);
+		result = new SimpleDirectedWeightedGraph<>(DefaultWeightedEdge.class);
 
-		// Add vertices and edges based on spatial relationships (containment vs
-		// overlap)
+		// Iterate the list of offset pairs
 		for (int i = 0; i < offsetPairs.size(); i++) {
 			ExtractionTextRange p = offsetPairs.get(i);
-			ExtractionVertex vertexP = createVertex(p, feasibleRefactorings.get(p));
+			CodeExtractionMetrics codeExtractionMetrics = cache.get(p);
+			ExtractionVertex vertexP = new ExtractionVertex(p.getStart(), p.getEnd(),
+					codeExtractionMetrics.getReductionOfCognitiveComplexity(),
+					codeExtractionMetrics.getAccumulatedInherentComponent(),
+					codeExtractionMetrics.getAccumulatedNestingComponent(),
+					codeExtractionMetrics.getNumberNestingContributors(), codeExtractionMetrics.getNesting());
 			result.addVertex(vertexP);
 
+			// Iterate over the next elements of the list
 			for (int j = i + 1; j < offsetPairs.size(); j++) {
 				ExtractionTextRange q = offsetPairs.get(j);
-				ExtractionVertex vertexQ = createVertex(q, feasibleRefactorings.get(q));
+				CodeExtractionMetrics codeExtractionMetrics2 = cache.get(q);
+				ExtractionVertex vertexQ = new ExtractionVertex(q.getStart(), q.getEnd(),
+						codeExtractionMetrics2.getReductionOfCognitiveComplexity(),
+						codeExtractionMetrics2.getAccumulatedInherentComponent(),
+						codeExtractionMetrics2.getAccumulatedNestingComponent(),
+						codeExtractionMetrics2.getNumberNestingContributors(), codeExtractionMetrics2.getNesting());
 				result.addVertex(vertexQ);
 
+				// q is contained in p
 				if (ExtractionTextRange.isContained(q, p)) {
-					// q is inside p -> Edge from Q to P
-					DefaultWeightedEdge edge = result.addEdge(vertexQ, vertexP);
-					if (edge != null)
-						result.setEdgeWeight(edge, 1);
-				} else if (ExtractionTextRange.isContained(p, q)) {
-					// p is inside q -> Edge from P to Q
-					DefaultWeightedEdge edge = result.addEdge(vertexP, vertexQ);
-					if (edge != null)
-						result.setEdgeWeight(edge, 1);
-				} else if (ExtractionTextRange.overlapping(p, q)) {
-					// Partial overlap -> Conflict
+					edge = result.addEdge(vertexQ, vertexP);
+					result.setEdgeWeight(edge, 1);
+				}
+				// p is contained in q
+				else if (ExtractionTextRange.isContained(p, q)) {
+					edge = result.addEdge(vertexP, vertexQ);
+					result.setEdgeWeight(edge, 1);
+				}
+				// q overlapped by p (conflict)
+				else if (ExtractionTextRange.overlapping(p, q)) {
+					// add conflicts to conflict graph
 					conflictsGraph.addVertex(vertexP);
 					conflictsGraph.addVertex(vertexQ);
 					conflictsGraph.addEdge(vertexQ, vertexP);
@@ -236,27 +251,34 @@ public class RefactoringCache {
 			}
 		}
 
-		// Perform Transitive Reduction to simplify the dependency graph
-		// This removes redundant edges (e.g., if A->B and B->C, remove A->C)
+		// add root and its corresponding edges to the graph
+		if (root != null) {
+			if (result.addVertex(root)){
+				for (ExtractionVertex v : result.vertexSet()) {
+					if (!v.equals(root)) {
+						if (result.outDegreeOf(v) == 0) {
+							edge = result.addEdge(v, root);
+							result.setEdgeWeight(edge, 1);
+						}
+					}
+				}
+			}
+		}
 
+		// transitivity reduction on the graph
 		TransitiveReduction.INSTANCE.reduce(result);
 
-		// Copy the clean dependency graph
+		// store the current graph that does not contain conflicts
 		neo.reducecognitivecomplexity.core.graphs.Utils.copy(result, graphWithoutConflicts);
 
-		// Add conflict edges back into the result (with weight 0)
+		// add conflict edges to the graph
+		DefaultWeightedEdge we;
 		for (DefaultEdge e : conflictsGraph.edgeSet()) {
-			ExtractionVertex source = conflictsGraph.getEdgeSource(e);
-			ExtractionVertex target = conflictsGraph.getEdgeTarget(e);
+			we = result.addEdge(conflictsGraph.getEdgeSource(e), conflictsGraph.getEdgeTarget(e));
+			result.setEdgeWeight(we, 0);
 
-			// Add edge in both directions for conflicts
-			DefaultWeightedEdge we1 = result.addEdge(source, target);
-			if (we1 != null)
-				result.setEdgeWeight(we1, 0);
-
-			DefaultWeightedEdge we2 = result.addEdge(target, source);
-			if (we2 != null)
-				result.setEdgeWeight(we2, 0);
+			we = result.addEdge(conflictsGraph.getEdgeTarget(e), conflictsGraph.getEdgeSource(e));
+			result.setEdgeWeight(we, 0);
 		}
 
 		return result;

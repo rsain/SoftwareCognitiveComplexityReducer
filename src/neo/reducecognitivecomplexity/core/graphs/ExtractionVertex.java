@@ -119,7 +119,7 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 	 * This is true if {@code v} starts after (or at) this start, and ends before (or at) this end.
 	 * </p>
 	 */
-	public boolean isContained(ExtractionVertex v) {
+	public boolean contains(ExtractionVertex v) {
 		return (v.initialOffset >= this.initialOffset) && (v.endOffset <= this.endOffset);
 	}
 
@@ -151,7 +151,7 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 
 	@Override
 	public String toString() {
-		return String.format("[%d, %d] (Red:%d, Inh:%d, Nest:%d, Contr:%d, Lev:%d)",
+		return String.format("[%d, %d] (%d, %d, %d, %d, %d)",
 				initialOffset, endOffset, 
 				reductionOfCognitiveComplexity,
 				accumulatedInherentComponent,

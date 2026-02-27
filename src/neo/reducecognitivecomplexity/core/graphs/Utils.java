@@ -453,7 +453,7 @@ public class Utils {
 	public static <E> List<ExtractionVertex> verticesBetweenTwoVertices(Graph<ExtractionVertex, E> g,
 			ExtractionVertex v1, ExtractionVertex v2) {
 
-		if (g.containsVertex(v1) && g.containsVertex(v2) && v2.isContained(v1)) {
+		if (g.containsVertex(v1) && g.containsVertex(v2) && v1.contains(v2)) {
 			return verticesBetweenTwoVerticesRecursion(g, v1, v2, new ArrayList<>());
 		}
 		return new ArrayList<>();
@@ -468,7 +468,7 @@ public class Utils {
 				continue;
 
 			// Ensure we are still inside v1 boundaries
-			if (next.isContained(v1)) {
+			if (v1.contains(next)) {
 				if (!explored.contains(next)) {
 					explored.add(next);
 					verticesBetweenTwoVerticesRecursion(g, v1, next, explored);
