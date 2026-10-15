@@ -128,7 +128,8 @@ public class MethodRefactoringPipeline {
 
         // Persist cache and write initial analysis results
         refactoringCache.writeToCSV(Constants.OUTPUT_FOLDER, cacheFileName);
-        resultWriter.writeResult(components, record, runtime);
+        resultWriter.writeResult(components, record, runtime,
+                refactoringCache.hasExtractionsNestedInAnonymousOrLocalClass());
 
         return refactoringCache;
     }
@@ -183,9 +184,10 @@ public class MethodRefactoringPipeline {
         StringBuilder header = new StringBuilder();
         header.append("algorithm;project;folder;package;class;method;lineNumber;initialComplexity;solution;extractions;")
               .append("reductionComplexity;finalComplexity;")
-              .append("minExtractedLOC;maxExtractedLOC;meanExtractedLOC;totalExtractedLOC;")
-              .append("minParamsExtractedMethods;maxParamsExtractedMethods;meanParamsExtractedMethods;totalParamsExtractedMethods;")
-              .append("minReductionOfCC;maxReductionOfCC;meanReductionOfCC;totalReductionOfCC;optimo;");
+              .append("minExtractedLOC;maxExtractedLOC;meanExtractedLOC;totalExtractedLOC;extractionsLOC;")
+              .append("minParamsExtractedMethods;maxParamsExtractedMethods;meanParamsExtractedMethods;totalParamsExtractedMethods;extractionsParams;")
+              .append("minReductionOfCC;maxReductionOfCC;meanReductionOfCC;totalReductionOfCC;extractionsReductionCC;")
+              .append("hasNestedInAnonymousOrLocalClassExtraction;optimo;");
         
         // Append solver-specific headers (e.g., "generations" for GA, "gap" for ILP)
         header.append(solver.getExtraCsvHeaders());

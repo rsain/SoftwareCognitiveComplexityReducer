@@ -48,6 +48,32 @@ public class CodeExtractionMetrics {
 	private int nesting;
 
 	/**
+	 * True if the code being extracted lives inside a method that is itself a
+	 * member of an anonymous class, or declared within a local class (a class
+	 * declared inside a method/block body).
+	 * <p>
+	 * In that case, JDT places the newly extracted method as a SIBLING within
+	 * that same anonymous/local class rather than as an independent member of
+	 * the enclosing (true) class, so its complexity is NOT fully removed from
+	 * the "true" method's own aggregate Cognitive Complexity.
+	 * </p>
+	 */
+	private boolean nestedInAnonymousOrLocalClass;
+
+	/**
+	 * True if this extraction's OWN root node is the {@code elseStatement} of
+	 * an external {@code IfStatement} that is NOT part of this same
+	 * extraction.
+	 * <p>
+	 * When true, extracting this candidate turns its immediate external
+	 * predecessor from a plain "else if" (no extra bonus) into a genuine
+	 * terminal "else { call(); }", which gains a brand-new +1 contribution
+	 * that did NOT exist anywhere in the original, pre-extraction AST.
+	 * </p>
+	 */
+	private boolean chainingContinuationOfExternalParent;
+
+	/**
 	 * The ordered list of changes required to perform this extraction. Typically
 	 * contains one change, but can support a sequence.
 	 */
@@ -108,6 +134,8 @@ public class CodeExtractionMetrics {
 		this.numberNestingContributors = metrics.numberNestingContributors;
 		this.nesting = metrics.nesting;
 		this.runtime = metrics.runtime;
+		this.nestedInAnonymousOrLocalClass = metrics.nestedInAnonymousOrLocalClass;
+		this.chainingContinuationOfExternalParent = metrics.chainingContinuationOfExternalParent;
 	}
 
 	/**
@@ -142,6 +170,12 @@ public class CodeExtractionMetrics {
 		this.nesting = 0;
 
 		this.runtime += metrics.runtime;
+
+		// Aggregate flag: true if ANY of the joined extractions was nested
+		// inside an anonymous/local class, useful to know, at the solution
+		// level, whether the reported reduction includes at least one
+		// extraction affected by this special case.
+		this.nestedInAnonymousOrLocalClass = this.nestedInAnonymousOrLocalClass || metrics.nestedInAnonymousOrLocalClass;
 	}
 
 	// =========================================================================
@@ -252,6 +286,22 @@ public class CodeExtractionMetrics {
 		return nesting;
 	}
 
+	public boolean isNestedInAnonymousOrLocalClass() {
+		return nestedInAnonymousOrLocalClass;
+	}
+
+	public void setNestedInAnonymousOrLocalClass(boolean nestedInAnonymousOrLocalClass) {
+		this.nestedInAnonymousOrLocalClass = nestedInAnonymousOrLocalClass;
+	}
+
+	public boolean isChainingContinuationOfExternalParent() {
+		return chainingContinuationOfExternalParent;
+	}
+
+	public void setChainingContinuationOfExternalParent(boolean chainingContinuationOfExternalParent) {
+		this.chainingContinuationOfExternalParent = chainingContinuationOfExternalParent;
+	}
+
 	public void setNesting(int nesting) {
 		this.nesting = nesting;
 	}
@@ -260,6 +310,7 @@ public class CodeExtractionMetrics {
 	public String toString() {
 		return "Metrics [feasible=" + feasible + ", applied=" + applied + ", reason=" + reason + ", lines="
 				+ numberOfExtractedLinesOfCode + ", params=" + numberOfParametersInExtractedMethod + ", complexityRed="
-				+ reductionOfCognitiveComplexity + ", runtime=" + runtime + "ms]";
+				+ reductionOfCognitiveComplexity + ", nestedInAnonymousOrLocalClass=" + nestedInAnonymousOrLocalClass
+				+ ", runtime=" + runtime + "ms]";
 	}
 }

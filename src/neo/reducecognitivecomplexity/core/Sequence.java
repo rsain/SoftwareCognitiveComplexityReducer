@@ -114,12 +114,38 @@ public class Sequence {
             }
         }
 
+        ASTNode extractionRoot = Utils.getStatementOrParent(siblingNodes.get(0));
+        ASTNode rootParent = extractionRoot.getParent();
+        boolean rootParentIsExternal = rootParent != null && !siblingNodes.contains(rootParent);
+        boolean isChainingContinuationOfExternalParent = rootParentIsExternal
+                && Utils.isChainingContinuationOfParent(extractionRoot);
+
+        if (isChainingContinuationOfExternalParent) {
+            totalReduction -= 1;
+        }
+
         // Update the result object with the accumulated values
         result.setReductionOfCognitiveComplexity(result.getReductionOfCognitiveComplexity() + totalReduction);
         result.setAccumulatedInherentComponent(result.getAccumulatedInherentComponent() + accInherent);
         result.setAccumulatedNestingComponent(result.getAccumulatedNestingComponent() + accNesting);
         result.setNumberNestingContributors(result.getNumberNestingContributors() + nestingContributors);
         result.setNesting(maxNestingLevel);
+
+        // Record whether this extraction's root lives inside a method that is
+        // itself a member of an anonymous class or declared within a local.
+        // Reuses the SAME extractionRoot already computed above, at no extra
+        // AST traversal cost.
+        result.setNestedInAnonymousOrLocalClass(!Utils.isEscapingExtraction(extractionRoot));
+
+        // Record whether THIS candidate's own root is itself a chaining
+        // continuation of an external parent, reusing the flag already
+        // computed above. Needed by Model#addComplexityConstraints() to
+        // correctly account for the +1 gained by whichever OTHER extraction
+        // directly contains this candidate's immediate predecessor, when
+        // that predecessor transitions from "else if" (no bonus) to a
+        // genuine terminal "else { call(); }" (new +1) as a side effect of
+        // this candidate being extracted.
+        result.setChainingContinuationOfExternalParent(isChainingContinuationOfExternalParent);
 
         return result;
     }

@@ -19,10 +19,16 @@ import neo.reducecognitivecomplexity.core.Solution;
 import neo.reducecognitivecomplexity.core.jdt.Utils;
 import neo.reducecognitivecomplexity.core.refactoringcache.RefactoringCache;
 
+/**
+ * Unit tests for {@link Solution}.
+ * <p>
+ * Verifies initialization, feasibility evaluation, and extraction count calculations 
+ * for refactoring solutions using sample compilation units and refactoring caches.
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SolutionTest {
 	static ArrayList<Solution> s = new ArrayList<>();
-	static ArrayList<Double> expectedFitness = new ArrayList<>();
+	static ArrayList<Double> extractions = new ArrayList<>();
 	
 	@BeforeAll
 	static void setUp() throws Exception {
@@ -38,54 +44,54 @@ class SolutionTest {
 		
 		//First test case
 		javaFileName.add("EZInjection.java");
-		refactoringCacheFileName.add("bytecode-viewer@src.main.java-the.bytecode.club.bytecodeviewer.plugin.preinstalled-EZInjection.java-execute-141.csv");
+		refactoringCacheFileName.add("bytecode-viewer@src.main.java-the.bytecode.club.bytecodeviewer.plugin.preinstalled-EZInjection.java-execute-140.csv");
 		cognitiveComplexity.add(131);
-		solutionStringFormat.add("[[6529], [7704 8735], [8735], [11006 11252 11288 11312], [12133]]");
-		expectedFitness.add(5.0);
+		solutionStringFormat.add("[[5789, 5863, 6082, 6169, 6345, 11006, 11252, 11288], [6529], [7582], [7657, 7704], [12133]]");
+		extractions.add(5.0);
 		
 		//Second test case
 		javaFileName.add("ResourceDecompiling.java");
 		refactoringCacheFileName.add("bytecode-viewer@src.main.java-the.bytecode.club.bytecodeviewer.resources-ResourceDecompiling.java-decompileSaveAll-47.csv");
 		cognitiveComplexity.add(79);
 		solutionStringFormat.add("[[3637 3738 3786 3886 3940 4042 5614 5948 6278 6620 6960], [4042 5614 5948 6278], [5614 5948 6278]]");
-		expectedFitness.add(3.0);
+		extractions.add(3.0);
 		
 		//Third test case
 		javaFileName.add("ResourceDecompiling.java");
 		refactoringCacheFileName.add("bytecode-viewer@src.main.java-the.bytecode.club.bytecodeviewer.resources-ResourceDecompiling.java-decompileSaveOpenedOnly-199.csv");
 		cognitiveComplexity.add(140);
 		solutionStringFormat.add("[[8466 8487 8588 10272], [8466 8487 8588 10272 11054], [8487 8588], [8662 8712], [8662 8712 8998 9266 9526 9800], [11893], [12628]]");
-		expectedFitness.add(7.0);
+		extractions.add(7.0);
 		
 		//Fourth test case
 		javaFileName.add("Ebes.java");
-		refactoringCacheFileName.add("jmetal-problem@src.main.java-org.uma.jmetal.problem.multiobjective.ebes-Ebes.java-EBEsReadDataFile-5059.csv");
-		cognitiveComplexity.add(126);
-		solutionStringFormat.add("[[176884], [176916], [176993], [177263], [177541], [177816], [177945 177977 178057], [178106], [178434], [178700], [178971], [179100 179132 179271], [179354], [179672], [180055], [180338], [180467 180499 180563 180613], [180729], [180880 180944 180957], [181277 181343], [181569 181599 181629 181682 183525 183555 183605], [183770], [183909 183939 184002], [184139], [184301 184331 184361 184391 184421 184481 184544 184765 184795], [185084 185149 185193 185216], [185436]]");
-		expectedFitness.add(27.0);
+		refactoringCacheFileName.add("jmetal-problem@src.main.java-org.uma.jmetal.problem.multiobjective.ebes-Ebes.java-Variable_Position-5360.csv");
+		cognitiveComplexity.add(16);
+		solutionStringFormat.add("[[186548], [186867], [187824], [188776], [189093], [189410]]");
+		extractions.add(6.0);
 		
 		//Fifth test case
 		javaFileName.add("Ebes.java");
 		refactoringCacheFileName.add("jmetal-problem@src.main.java-org.uma.jmetal.problem.multiobjective.ebes-Ebes.java-Variable_Position-5360.csv");
 		cognitiveComplexity.add(16);
-		solutionStringFormat.add("[[186548], [186867], [187824], [188776], [189093], [189410]]");
-		expectedFitness.add(6.0);
+		solutionStringFormat.add("[[186227], [186867], [187824], [188776], [189093]]");
+		extractions.add(5.0);
 		
 		//Sixth test case
-		javaFileName.add("Ebes.java");
-		refactoringCacheFileName.add("jmetal-problem@src.main.java-org.uma.jmetal.problem.multiobjective.ebes-Ebes.java-Variable_Position-5360.csv");
-		cognitiveComplexity.add(16);
-		solutionStringFormat.add("[[186227], [186867], [187824], [188776], [189093]]");
-		expectedFitness.add(5.0);
-		
-		//Seventh test case
 		javaFileName.add("LZ09.java");
 		refactoringCacheFileName.add("jmetal-problem@src.main.java-org.uma.jmetal.problem.multiobjective.lz09-LZ09.java-objective-223.csv");
 		cognitiveComplexity.add(42);
 		solutionStringFormat.add("[[5810 6638], [5810]]");
-		expectedFitness.add(2.0);
+		extractions.add(2.0);
 		
-		for (int i = 0; i < expectedFitness.size(); i++)
+		//Seventh test case
+		javaFileName.add("ASMResourceUtil.java");
+		refactoringCacheFileName.add("bytecode-viewer@src.main.java-the.bytecode.club.bytecodeviewer.api-ASMResourceUtil.java-renameClassNode-146.csv");
+		cognitiveComplexity.add(69);
+		solutionStringFormat.add("[[6327, 6763, 6870, 6967], [6327, 6763, 6870, 6967, 7160], [7846, 8119, 8451]]");
+		extractions.add(3.0);
+		
+		for (int i = 0; i < extractions.size(); i++)
 		{
 			cu.add(Utils.createCompilationUnitFromFile(absolutePath + javaFileName.get(i)));
 			rc.add(new RefactoringCache(absolutePath, refactoringCacheFileName.get(i), cu.get(i)));
@@ -115,13 +121,13 @@ class SolutionTest {
 	}
 	
 	@Test
-	@DisplayName ("Checking fitness value")
+	@DisplayName ("Checking extractions value")
 	@Order(3)
-	void checkFitnessValue() {
+	void checkExtractions() {
 		for (int i = 0; i < s.size(); i++)
 		{
 			System.out.println("Processing solution " + (i+1) + " over " + s.size());
-			assertEquals(expectedFitness.get(i), s.get(i).getFitness(), "Fitness is not properly computed for " + s.toString() + "!");
+			assertEquals(extractions.get(i), s.get(i).getSize(), "Extractions is not properly computed for " + s.toString() + "!");
 			System.out.println("Done solution " + (i+1) + " over " + s.size());
 			
 		}

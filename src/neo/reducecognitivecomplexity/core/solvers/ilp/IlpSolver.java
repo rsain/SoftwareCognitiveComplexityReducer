@@ -48,7 +48,6 @@ public class IlpSolver implements RefactoringSolver {
         Solution bestSolution = null;
         boolean isOptimal = false;
         int numberOfSolutions = 0;
-        int numberOfOptimalSolutions = 0;
         String modelStatus = "UNKNOWN";
 
         GraphBundle graphs = ctx.getGraphs();
@@ -77,39 +76,37 @@ public class IlpSolver implements RefactoringSolver {
             m.cplex.setParam(IloCplex.DoubleParam.EpInt, 1E-9); // Integrality tolerance
             m.cplex.setParam(IloCplex.DoubleParam.EpGap, 1E-9); // Relative MIP gap tolerance
             m.cplex.setParam(IloCplex.DoubleParam.EpOpt, 1E-9); // Optimality tolerance
-            
+
             // Limit time
             m.cplex.setParam(IloCplex.DoubleParam.TimeLimit, config.getTimeLimit());
-            
+
             // Limit working memory
             m.cplex.setParam(IloCplex.Param.WorkMem, config.getWorkingMemory());
-            
-            // Stop populating after finding 10 optimal solutions
-            m.cplex.setParam(IloCplex.IntParam.PopulateLim, 10);
-            
+
             // Export the mathematical model for debugging purposes
-            String lpFileName = Constants.OUTPUT_FOLDER 
+            String lpFileName = Constants.OUTPUT_FOLDER
                     + ctx.generatePrefixForSolverFileNames() + ".lp";
             m.cplex.exportModel(lpFileName);
-            
+
             // Execute the solver
-            m.cplex.populate();
+            m.cplex.solve();
 
             // Retrieve solution metadata
-            numberOfSolutions = m.cplex.getSolnPoolNsolns();
             modelStatus = m.cplex.getStatus().toString();
-            isOptimal = m.cplex.getStatus().equals(ilog.cplex.IloCplex.Status.Optimal);
 
-            numberOfOptimalSolutions = m.showSolutionPopOptima();
+            // get status
+            isOptimal = m.cplex.getStatus().equals(IloCplex.Status.Optimal);
 
-            if (numberOfOptimalSolutions > 0) {
-                LOGGER.info("NUMBER OF OPTIMAL SOLUTIONS: " + numberOfOptimalSolutions);
+            if (m.cplex.isPrimalFeasible()) {
+                numberOfSolutions = 1;
 
-                // Retrieve the best solution (index 0) from the pool
+                LOGGER.info("SOLUTION FOUND (optimal=" + isOptimal + ") for "
+                        + ctx.generatePrefixForSolverFileNames());
+
                 bestSolution = m.getSolution(
-                        0, 
-                        Utils.getICompilationUnit(ctx.ast), 
-                        ctx.compilationUnit, 
+                        0,
+                        Utils.getICompilationUnit(ctx.ast),
+                        ctx.compilationUnit,
                         ctx.ast
                 );
 
@@ -142,13 +139,13 @@ public class IlpSolver implements RefactoringSolver {
         long runtime = System.currentTimeMillis() - startTime;
 
         // Write results to CSV
-        writeResultsToCsv(writer, ctx, bestSolution, isOptimal, modelStatus, numberOfOptimalSolutions, runtime);
+        writeResultsToCsv(writer, ctx, bestSolution, isOptimal, modelStatus, numberOfSolutions, runtime);
 
         return bestSolution;
     }
 
     private void writeResultsToCsv(BufferedWriter bf, SolverContext ctx, Solution bestSolution,
-                                   boolean isOptimal, String modelStatus, long numberOfOptimalSolutions, 
+                                   boolean isOptimal, String modelStatus, long numberOfSolutions,
                                    long runtime) throws IOException {
 
         // Contextual Information
@@ -166,7 +163,7 @@ public class IlpSolver implements RefactoringSolver {
             bf.append(bestSolution.toStringForFileFormat()).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(bestSolution.getSize())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(bestSolution.getReducedComplexity())).append(Constants.CSV_SEPARATOR);
-            
+
             int complexityReduction = ctx.record.complexity - bestSolution.getReducedComplexity();
             bf.append(String.valueOf(complexityReduction)).append(Constants.CSV_SEPARATOR);
 
@@ -176,21 +173,27 @@ public class IlpSolver implements RefactoringSolver {
             bf.append(String.valueOf(stats.getMaxNumberOfExtractedLinesOfCode())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getMeanNumberOfExtractedLinesOfCode())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getTotalNumberOfExtractedLinesOfCode())).append(Constants.CSV_SEPARATOR);
-            
+            bf.append(stats.getExtractedLinesOfCodeList()).append(Constants.CSV_SEPARATOR);
+
             bf.append(String.valueOf(stats.getMinNumberOfParametersInExtractedMethods())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getMaxNumberOfParametersInExtractedMethods())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getMeanNumberOfParametersInExtractedMethods())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getTotalNumberOfParametersInExtractedMethods())).append(Constants.CSV_SEPARATOR);
-            
+            bf.append(stats.getParametersInExtractedMethodsList()).append(Constants.CSV_SEPARATOR);
+
             bf.append(String.valueOf(stats.getMinReductionOfCognitiveComplexity())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getMaxReductionOfCognitiveComplexity())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getMeanReductionOfCognitiveComplexity())).append(Constants.CSV_SEPARATOR);
             bf.append(String.valueOf(stats.getTotalReductionOfCognitiveComplexity())).append(Constants.CSV_SEPARATOR);
+            bf.append(stats.getReductionOfCognitiveComplexityList()).append(Constants.CSV_SEPARATOR);
+
+            bf.append(stats.hasExtractionsNestedInAnonymousOrLocalClass() ? "1" : "0").append(Constants.CSV_SEPARATOR);
         } else {
             // Placeholder for no solution
             bf.append("NO SOLUTION!;");
-            // Fill empty columns to match header structure
-            for (int i = 0; i < 15; i++) {
+            // Fill empty columns to match header structure (16: the 15 detailed
+            // statistics columns plus nestedInAnonymousOrLocalClassExtractions)
+            for (int i = 0; i < 19; i++) {
                 bf.append(Constants.CSV_SEPARATOR);
             }
         }
@@ -198,7 +201,7 @@ public class IlpSolver implements RefactoringSolver {
         // Solver Specific Metadata
         bf.append(String.valueOf(isOptimal)).append(Constants.CSV_SEPARATOR);
         bf.append(modelStatus).append(Constants.CSV_SEPARATOR);
-        bf.append(String.valueOf(numberOfOptimalSolutions)).append(Constants.CSV_SEPARATOR);
+        bf.append(String.valueOf(numberOfSolutions)).append(Constants.CSV_SEPARATOR);
         bf.append(String.valueOf(runtime)).append("\n");
 
         bf.flush();

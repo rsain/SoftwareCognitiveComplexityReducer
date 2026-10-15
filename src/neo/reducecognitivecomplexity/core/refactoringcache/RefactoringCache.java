@@ -62,7 +62,16 @@ public class RefactoringCache {
 	 * Assumes the CSV header: "Offset_A, Offset_B, feasibility, reason,
 	 * #parameters, extractedLOC, reductionCC, extractedMethodCC,
 	 * accumulatedInherentComponent, accumulatedNestingComponent,
-	 * numberNestingContributors, nesting, runtime"
+	 * numberNestingContributors, nesting, nestedInAnonymousOrLocalClass, runtime"
+	 * </p>
+	 * <p>
+	 * The {@code nestedInAnonymousOrLocalClass} column is read defensively:
+	 * CSV files written before this field existed simply won't have it (13
+	 * columns, with {@code runtime} as the last one, at index 12), and are
+	 * still loaded correctly (the field defaults to {@code false} for every
+	 * entry in that case). Files written after this field was introduced have
+	 * 14 columns, with {@code nestedInAnonymousOrLocalClass} at index 12 and
+	 * {@code runtime} shifted to index 13.
 	 * </p>
 	 * 
 	 * @param path              Directory path of the CSV file.
@@ -85,6 +94,13 @@ public class RefactoringCache {
 				// Parse feasibility (1 = true, 0 = false)
 				boolean isFeasible = Integer.parseInt(tokens[2].trim()) == 1;
 
+				// Detect format: old files (written before nestedInAnonymousOrLocalClass
+				// existed) have 13 columns with runtime last, at index 12. New files
+				// have 14 columns, with nestedInAnonymousOrLocalClass at index 12 and
+				// runtime shifted to index 13.
+				boolean hasNestedColumn = tokens.length > 13;
+				int runtimeIndex = hasNestedColumn ? 13 : 12;
+
 				CodeExtractionMetrics metrics = new CodeExtractionMetrics(isFeasible, tokens[3], // reason
 						false, // isVariableDeclaration (defaulted false in original)
 						Integer.parseInt(tokens[5].trim()), // extractedLOC
@@ -94,8 +110,12 @@ public class RefactoringCache {
 						Integer.parseInt(tokens[9].trim()), // accumulatedNesting
 						Integer.parseInt(tokens[10].trim()), // numberNestingContributors
 						Integer.parseInt(tokens[11].trim()), // nesting
-						Long.parseLong(tokens[12].trim()) // runtime
+						Long.parseLong(tokens[runtimeIndex].trim()) // runtime
 				);
+
+				if (hasNestedColumn) {
+					metrics.setNestedInAnonymousOrLocalClass(Integer.parseInt(tokens[12].trim()) == 1);
+				}
 
 				ExtractionTextRange pair = new ExtractionTextRange(Integer.parseInt(tokens[0].trim()), Integer.parseInt(tokens[1].trim()));
 				this.cache.put(pair, metrics);
@@ -128,6 +148,15 @@ public class RefactoringCache {
 		return new CodeExtractionMetrics(result);
 	}
 
+	/**
+	 * True if AT LEAST ONE extraction currently in this cache has its code
+	 * living inside a method that is itself a member of an anonymous class,
+	 * or declared within a local class
+	 */
+	public boolean hasExtractionsNestedInAnonymousOrLocalClass() {
+		return cache.values().stream().anyMatch(CodeExtractionMetrics::isNestedInAnonymousOrLocalClass);
+	}
+
 	@Override
 	public String toString() {
 		StringBuilder result = new StringBuilder();
@@ -150,7 +179,7 @@ public class RefactoringCache {
 	public void writeToCSV(String path, String fileName) throws IOException {
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(path + fileName, false))) {
 			writer.write(
-					"A, B, feasible, reason, parameters, extractedLOC, reductionCC, extractedMethodCC, accumulatedInherentComponent, accumulatedNestingComponent, numberNestingContributors, nesting, runtime");
+					"A, B, feasible, reason, parameters, extractedLOC, reductionCC, extractedMethodCC, accumulatedInherentComponent, accumulatedNestingComponent, numberNestingContributors, nesting, nestedInAnonymousOrLocalClass, runtime");
 			writer.newLine();
 
 			for (Entry<ExtractionTextRange, CodeExtractionMetrics> entry : cache.entrySet()) {
@@ -171,7 +200,8 @@ public class RefactoringCache {
 						.append(metrics.getAccumulatedInherentComponent()).append(", ")
 						.append(metrics.getAccumulatedNestingComponent()).append(", ")
 						.append(metrics.getNumberNestingContributors()).append(", ").append(metrics.getNesting())
-						.append(", ").append(metrics.getRuntime());
+						.append(", ").append(metrics.isNestedInAnonymousOrLocalClass() ? "1" : "0").append(", ")
+						.append(metrics.getRuntime());
 
 				writer.write(line.toString());
 				writer.newLine();
@@ -217,7 +247,9 @@ public class RefactoringCache {
 					codeExtractionMetrics.getReductionOfCognitiveComplexity(),
 					codeExtractionMetrics.getAccumulatedInherentComponent(),
 					codeExtractionMetrics.getAccumulatedNestingComponent(),
-					codeExtractionMetrics.getNumberNestingContributors(), codeExtractionMetrics.getNesting());
+					codeExtractionMetrics.getNumberNestingContributors(), codeExtractionMetrics.getNesting(),
+					codeExtractionMetrics.isNestedInAnonymousOrLocalClass(),
+					codeExtractionMetrics.isChainingContinuationOfExternalParent());
 			result.addVertex(vertexP);
 
 			// Iterate over the next elements of the list
@@ -228,7 +260,9 @@ public class RefactoringCache {
 						codeExtractionMetrics2.getReductionOfCognitiveComplexity(),
 						codeExtractionMetrics2.getAccumulatedInherentComponent(),
 						codeExtractionMetrics2.getAccumulatedNestingComponent(),
-						codeExtractionMetrics2.getNumberNestingContributors(), codeExtractionMetrics2.getNesting());
+						codeExtractionMetrics2.getNumberNestingContributors(), codeExtractionMetrics2.getNesting(),
+						codeExtractionMetrics2.isNestedInAnonymousOrLocalClass(),
+						codeExtractionMetrics2.isChainingContinuationOfExternalParent());
 				result.addVertex(vertexQ);
 
 				// q is contained in p
@@ -454,7 +488,8 @@ public class RefactoringCache {
 	private ExtractionVertex createVertex(ExtractionTextRange p, CodeExtractionMetrics metrics) {
 		return new ExtractionVertex(p.getStart(), p.getEnd(), metrics.getReductionOfCognitiveComplexity(),
 				metrics.getAccumulatedInherentComponent(), metrics.getAccumulatedNestingComponent(),
-				metrics.getNumberNestingContributors(), metrics.getNesting());
+				metrics.getNumberNestingContributors(), metrics.getNesting(),
+				metrics.isNestedInAnonymousOrLocalClass(), metrics.isChainingContinuationOfExternalParent());
 	}
 	
 	/**

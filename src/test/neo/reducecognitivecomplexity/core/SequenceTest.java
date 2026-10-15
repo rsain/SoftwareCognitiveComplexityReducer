@@ -19,6 +19,12 @@ import neo.reducecognitivecomplexity.core.ExtractionTextRange;
 import neo.reducecognitivecomplexity.core.Sequence;
 import neo.reducecognitivecomplexity.core.jdt.Utils;
 
+/**
+ * Unit tests for {@link Sequence}.
+ * <p>
+ * Verifies that source code segments extracted via {@link ExtractionTextRange} 
+ * from JDT AST compilation units match expected code snippets.
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SequenceTest {
 	static ArrayList<Sequence> sequence = new ArrayList<>();

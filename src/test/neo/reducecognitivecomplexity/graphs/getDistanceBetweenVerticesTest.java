@@ -7,6 +7,12 @@ import org.junit.jupiter.api.Test;
 
 import neo.reducecognitivecomplexity.core.graphs.Utils;
 
+/**
+ * Unit tests for graph vertex distance calculations in {@link Utils#getDistanceBetweenVertices}.
+ * <p>
+ * Validates path distance calculations across directed graph configurations,
+ * including multi-hop paths, direct edges, self-referential queries, and unreachable pairs.
+ */
 class getDistanceBetweenVerticesTest {
 	private SimpleDirectedGraph<Integer, DefaultEdge> graph = new SimpleDirectedGraph<>(DefaultEdge.class);
 	

@@ -31,6 +31,23 @@ public class TargetMethod {
     public final String methodName;
 
     /**
+     * The line number (1-based) where the target method is declared in the
+     * source file, as reported by whatever tool generated the input CSV, or
+     * {@code -1} if the input row did not specify one (older 5-column CSV
+     * format).
+     * <p>
+     * When known, this is used to pinpoint the EXACT overload this row
+     * refers to, instead of matching every method sharing {@link #methodName}
+     * in the class - see {@link BatchCsvProcessor#processCsv(String)}. This
+     * matters because a class can have several overloaded methods with the
+     * same name, each individually exceeding the complexity threshold and
+     * therefore each listed as its OWN row (with its own line number) in the
+     * input CSV.
+     * </p>
+     */
+    public final int lineNumber;
+
+    /**
      * Constructs a new {@code TargetMethod} instance with the specified location coordinates.
      *
      * @param project      the name of the target Eclipse project
@@ -40,10 +57,28 @@ public class TargetMethod {
      * @param methodName   the precise name of the target method
      */
     public TargetMethod(String project, String sourceFolder, String packageName, String className, String methodName) {
+        this(project, sourceFolder, packageName, className, methodName, -1);
+    }
+
+    /**
+     * Constructs a new {@code TargetMethod} instance with the specified location coordinates,
+     * including the specific line number of the intended overload.
+     *
+     * @param project      the name of the target Eclipse project
+     * @param sourceFolder the source folder path
+     * @param packageName  the package name or directory path
+     * @param className    the name of the class (with or without the .java extension)
+     * @param methodName   the precise name of the target method
+     * @param lineNumber   the line number of the specific overload this row refers to,
+     *                     or a negative value if unknown/not specified.
+     */
+    public TargetMethod(String project, String sourceFolder, String packageName, String className, String methodName,
+            int lineNumber) {
         this.project = project;
         this.sourceFolder = sourceFolder;
         this.packageName = packageName;
         this.className = className;
         this.methodName = methodName;
+        this.lineNumber = lineNumber;
     }
 }

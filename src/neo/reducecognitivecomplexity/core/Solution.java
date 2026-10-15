@@ -1,33 +1,24 @@
 package neo.reducecognitivecomplexity.core;
 
-import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Stack;
-import java.util.logging.Logger;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.NodeFinder;
-import org.eclipse.jdt.core.dom.SimpleName;
-import org.eclipse.ltk.core.refactoring.Change;
-
 import neo.reducecognitivecomplexity.app.Constants;
 import neo.reducecognitivecomplexity.core.jdt.CodeExtractionMetrics;
 import neo.reducecognitivecomplexity.core.jdt.CodeExtractionMetricsStats;
 import neo.reducecognitivecomplexity.core.jdt.Utils;
-import neo.reducecognitivecomplexity.core.jdt.Utils.MethodDeclarationFinderVisitor;
 import neo.reducecognitivecomplexity.core.refactoringcache.RefactoringCache;
-import neo.reducecognitivecomplexity.core.solvers.ilp.IlpSolver;
 
 /**
  * A Solution represents a candidate refactoring plan for a method.
@@ -38,8 +29,7 @@ import neo.reducecognitivecomplexity.core.solvers.ilp.IlpSolver;
  * </p>
  */
 public class Solution {
-	private static final Logger LOGGER = Logger.getLogger(IlpSolver.class.getName());
-    
+  
     /**
      * List of code sequences to extract. 
      * Ordered by their position in the source code (top to bottom).
@@ -95,6 +85,7 @@ public class Solution {
      */
     public Solution(List<Sequence> sequenceList, CompilationUnit compilationUnit, ASTNode methodDeclarationNode) {
         this.sequenceList = sequenceList;
+        this.sortSequencesForRefactoringApplication();
         this.compilationUnit = compilationUnit;
         this.method = methodDeclarationNode;
         this.methodName = ((MethodDeclaration) this.method).getName().toString();
@@ -123,20 +114,17 @@ public class Solution {
         this.sequenceList = new ArrayList<>();
         this.compilationUnit = compilationUnit;
 
-        // Pattern to match arrays of numbers: "[123 456]"
-        Pattern p = Pattern.compile("\\[([0-9\\s]+)\\]");
+        Pattern p = Pattern.compile("\\[([0-9,\\s]+)\\]");
         Matcher m = p.matcher(solutionString);
 
         while (m.find()) {
-            // content inside brackets: "123 456 789"
             String value = m.group(1); 
-            String[] offsets = value.split("\\s+");
+            String[] offsets = value.split("[,\\s]+");
 
             List<ASTNode> nodes = new ArrayList<>();
             for (String offsetStr : offsets) {
                 if (offsetStr.isEmpty()) continue;
-                int offset = Integer.parseInt(offsetStr);
-                // 0 length implies we want the exact node starting at that offset
+                int offset = Integer.parseInt(offsetStr.trim());
                 NodeFinder finder = new NodeFinder(compilationUnit, offset, 0);
                 ASTNode node = finder.getCoveringNode();
                 if (node != null) {
@@ -154,6 +142,7 @@ public class Solution {
         }
         this.initialComplexity = methodCognitiveComplexity;
         this.fitness = Double.MAX_VALUE;
+        this.sortSequencesForRefactoringApplication();
     }
 
     /**
@@ -177,110 +166,168 @@ public class Solution {
     }
     
     /**
-     * Compute the metrics of the solution using the provided {@link RefactoringCache}.
-     * <p>
-     * This method evaluates metrics for every sequence. It accounts for nested extractions
-     * by subtracting the complexity of inner extractions from outer ones.
-     * </p>
-     *
-     * @param rf The refactoring cache.
-     * @return Aggregated metrics of the solution.
+     * Compute the aggregated metrics of the solution.
+     * Orchestrates evaluation, hierarchy resolution, metrics adjustment, and fitness penalty.
      */
     public CodeExtractionMetrics evaluate(RefactoringCache rf) {
-        int complexityOfNewExtractedMethod;
-        CodeExtractionMetrics[] metrics = new CodeExtractionMetrics[sequenceList.size()];
-        CodeExtractionMetrics results = new CodeExtractionMetrics(true, "", false, 0, 0, new ArrayList<Change>(), new ArrayList<Change>(), 0);
-        
-        ExtractionTextRange currentRange = null;
-        ExtractionTextRange lastRange = null; // "last" in loop iteration (physically later in file)
-        
-        fitness = sequenceList.size();
-        reducedComplexity = 0;
-                    
-        // Process sequences from bottom to top (Sequence list is sorted by offset)
-        for (int i = sequenceList.size() - 1; i >= 0; i--) {
-            
-            // Lazy evaluate metrics
-            if (metrics[i] == null) {
-                metrics[i] = sequenceList.get(i).evaluate(rf);
-            }
+        List<CodeExtractionMetrics> metricsList = evaluateAllSequences(rf);
 
-            // Fast fail: if any sequence is not feasible
-            if (!metrics[i].isFeasible()) {
-                fitness = Double.MAX_VALUE;
-                feasible = false;
-                reducedComplexity = 0;
-                return metrics[i];
-            }
+        // Fast-fail if any sequence is not feasible
+        Optional<CodeExtractionMetrics> unfeasibleMetrics = metricsList.stream()
+                .filter(m -> !m.isFeasible())
+                .findFirst();
 
-            currentRange = sequenceList.get(i).getTextRange();
-            
-            // Check for nesting: if we have processed a previous extraction (which is physically LATER),
-            // we check if that 'last' extraction is contained inside the 'current' one.
-            if (lastRange != null) {                
-                int innerIndex = i;
-                ExtractionTextRange potentialParentRange = currentRange;
-                
-                // Scan backwards (towards parents/earlier nodes) to update their metrics                              
-                while (innerIndex >= 0) {
-                    // Adapt length/metrics if nesting occurs
-                    // 'lastRange' is the inner extracted method.
-                    // 'potentialParentRange' is a candidate outer method.
-                    if (lastRange.isContainedIn(potentialParentRange)) {
-                        
-                        // Ensure the parent is evaluated
-                        if (metrics[innerIndex] == null) {
-                            metrics[innerIndex] = sequenceList.get(innerIndex).evaluate(rf);
-                        }
-                        
-                        // Child metrics (metrics[i+1] because we are moving backwards)
-                        // Actually, 'lastRange' corresponded to metrics of the previously processed item.
-                        // In this loop structure, we need to be careful with indices.
-                        // The original logic assumes 'last' corresponds to the iteration i+1 (the previous loop step)
-                        
-                        // Subtract child complexity from parent
-                        CodeExtractionMetrics parentMetrics = metrics[innerIndex];
-                        CodeExtractionMetrics childMetrics = metrics[i + 1]; 
-                        
-                        parentMetrics.setReductionOfCognitiveComplexity(parentMetrics.getReductionOfCognitiveComplexity() - childMetrics.getReductionOfCognitiveComplexity());
-                        parentMetrics.setAccumulatedInherentComponent(parentMetrics.getAccumulatedInherentComponent() - childMetrics.getAccumulatedInherentComponent());
-                        parentMetrics.setNumberNestingContributors(parentMetrics.getNumberNestingContributors() - childMetrics.getNumberNestingContributors());                        
-                        parentMetrics.setAccumulatedNestingComponent(childMetrics.getNesting() - parentMetrics.getNesting());                        
-                    } 
-                    
-                    // Move to the next potential parent (physically earlier in list)
-                    if (innerIndex > 0) {
-                        potentialParentRange = sequenceList.get(innerIndex - 1).getTextRange();
-                    }
-                    innerIndex--;
-                }
-            }
-            
-            // Penalize if the extracted method itself is too complex
-            complexityOfNewExtractedMethod = metrics[i].getCognitiveComplexityOfNewExtractedMethod();
-            if (complexityOfNewExtractedMethod > Constants.COGNITIVE_COMPLEXITY_THRESHOLD) {
-                fitness += (complexityOfNewExtractedMethod - Constants.COGNITIVE_COMPLEXITY_THRESHOLD) * 10;
-            }
-            
-            reducedComplexity += metrics[i].getReductionOfCognitiveComplexity();
-            results.joinMetrics(metrics[i]);
-            
-            lastRange = currentRange;
+        if (unfeasibleMetrics.isPresent()) {
+            resetInfeasibleState();
+            return unfeasibleMetrics.get();
         }
 
-        this.extractionMetricsStats = new CodeExtractionMetricsStats(metrics);
-        int finalMethodComplexity = this.initialComplexity - reducedComplexity;
-
-        // Penalize if the original method (after extraction) is still too complex
-        if (finalMethodComplexity > Constants.COGNITIVE_COMPLEXITY_THRESHOLD) {
-            fitness += (finalMethodComplexity - Constants.COGNITIVE_COMPLEXITY_THRESHOLD) * 10;
-        }
-        
-        feasible = results.isFeasible();
-
-        return results;
+        applyNestingAdjustments(metricsList);
+        return aggregateAndCalculateFitness(metricsList);
     }
 
+    // -------------------------------------------------------------------------
+    // Helper Methods (Delegated Responsibilities)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Sorts the sequence list in strict execution order for applying the refactoring.
+     * Children always precede parents and independent sequences are ordered bottom-to-top.
+     */
+    public void sortSequencesForRefactoringApplication() {
+        if (this.sequenceList == null || this.sequenceList.isEmpty()) return;
+
+        this.sequenceList.sort((seqA, seqB) -> {
+            ExtractionTextRange rA = seqA.getTextRange();
+            ExtractionTextRange rB = seqB.getTextRange();
+            return ExtractionTextRange.compareExecutionOrder(rA, rB);
+        });
+    }
+    
+    private List<CodeExtractionMetrics> evaluateAllSequences(RefactoringCache rf) {
+        return sequenceList.stream()
+                .map(seq -> seq.evaluate(rf))
+                .collect(Collectors.toList());
+    }
+
+    private void applyNestingAdjustments(List<CodeExtractionMetrics> metricsList) {
+        // Snapshot raw reductions before modifying parents
+        int[] rawReductions = metricsList.stream()
+                .mapToInt(CodeExtractionMetrics::getReductionOfCognitiveComplexity)
+                .toArray();
+
+        for (int childIndex = 0; childIndex < sequenceList.size(); childIndex++) {
+            int parentIndex = findDirectParentIndex(childIndex);
+            if (parentIndex != -1) {
+                Sequence parentSequence = sequenceList.get(parentIndex);
+
+                // Only subtract the child's contribution when the PARENT's own
+                // reduction was computed by SUMMING the full contribution of
+                // every complexity node in its subtree, since
+                // that is the only case where a nested child sequence's
+                // contribution risks being counted twice (once for the child
+                // itself, once again as part of the parent's own subtree sum).
+                //
+                // When the parent's reduction was instead computed with the
+                // "nested" (shift-based) formula (because the parent's own
+                // extraction site lives inside an anonymous/local class), it
+                // is a uniform per-subtree value, NOT a sum of each
+                // descendant's own contribution, so it never double-counts
+                // anything to begin with.
+                if (parentSequenceUsesFullContributionSum(parentSequence)) {
+                    subtractChildMetricsFromParent(
+                        metricsList.get(parentIndex), 
+                        metricsList.get(childIndex), 
+                        rawReductions[childIndex]
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether {@code sequence}'s own {@code reductionOfCognitiveComplexity}
+     * was computed by summing the full contribution of every complexity node
+     * in its subtree (the "escaping" case), as opposed to the "nested"
+     * (shift-based) case - see
+     * {@link Utils#computeMetricsIfExtracted(ASTNode)} and
+     * {@link Utils#isEscapingExtraction(ASTNode)}.
+     */
+    private boolean parentSequenceUsesFullContributionSum(Sequence sequence) {
+        List<ASTNode> nodes = sequence.getSiblingNodes();
+        if (nodes == null || nodes.isEmpty()) {
+            return true; // Defensive default: preserve the previous (subtracting) behavior.
+        }
+        ASTNode root = Utils.getStatementOrParent(nodes.get(0));
+        return Utils.isEscapingExtraction(root);
+    }
+
+    private int findDirectParentIndex(int childIndex) {
+        ExtractionTextRange childRange = sequenceList.get(childIndex).getTextRange();
+
+        return IntStream.range(0, sequenceList.size())
+                .filter(j -> j != childIndex)
+                .filter(j -> childRange.isContainedIn(sequenceList.get(j).getTextRange()))
+                .reduce((bestParent, candidate) -> 
+                    sequenceList.get(candidate).getTextRange().isContainedIn(sequenceList.get(bestParent).getTextRange()) 
+                        ? candidate 
+                        : bestParent
+                )
+                .orElse(-1);
+    }
+
+    private void subtractChildMetricsFromParent(CodeExtractionMetrics parent, CodeExtractionMetrics child, int childRawReduction) {
+        parent.setReductionOfCognitiveComplexity(parent.getReductionOfCognitiveComplexity() - childRawReduction);
+        parent.setAccumulatedInherentComponent(parent.getAccumulatedInherentComponent() - child.getAccumulatedInherentComponent());
+        parent.setNumberNestingContributors(parent.getNumberNestingContributors() - child.getNumberNestingContributors());
+
+        int levelDifference = child.getNesting() - parent.getNesting();
+        int childContributionToParentNesting = child.getAccumulatedNestingComponent()
+                + child.getNumberNestingContributors() * levelDifference;
+        parent.setAccumulatedNestingComponent(parent.getAccumulatedNestingComponent() - childContributionToParentNesting);
+    }
+
+    private CodeExtractionMetrics aggregateAndCalculateFitness(List<CodeExtractionMetrics> metricsList) {
+        CodeExtractionMetrics aggregated = new CodeExtractionMetrics(true, "", false, 0, 0, new ArrayList<>(), new ArrayList<>(), 0);
+        
+        this.reducedComplexity = 0;
+        this.fitness = sequenceList.size();
+
+        for (CodeExtractionMetrics metric : metricsList) {
+            this.reducedComplexity += metric.getReductionOfCognitiveComplexity();
+            aggregated.joinMetrics(metric);
+
+            int complexity = metric.getCognitiveComplexityOfNewExtractedMethod();
+            if (complexity > Constants.COGNITIVE_COMPLEXITY_THRESHOLD) {
+                this.fitness += (complexity - Constants.COGNITIVE_COMPLEXITY_THRESHOLD) * 10;
+            }
+        }
+
+        int finalMethodComplexity = this.initialComplexity - this.reducedComplexity;
+        if (finalMethodComplexity > Constants.COGNITIVE_COMPLEXITY_THRESHOLD) {
+            this.fitness += (finalMethodComplexity - Constants.COGNITIVE_COMPLEXITY_THRESHOLD) * 10;
+        }
+
+        this.extractionMetricsStats = new CodeExtractionMetricsStats(metricsList.toArray(new CodeExtractionMetrics[0]));
+        this.feasible = aggregated.isFeasible();
+
+        return aggregated;
+    }
+
+    private void resetInfeasibleState() {
+        this.fitness = Double.MAX_VALUE;
+        this.feasible = false;
+        this.reducedComplexity = 0;
+    }
+
+    // Setters for execution lifecycle manipulation
+    public void updateCompilationUnitState(CompilationUnit cu, ASTNode refreshedMethodNode) {
+        this.compilationUnit = cu;
+        this.method = refreshedMethodNode;
+    }
+    
+    public CompilationUnit getCompilationUnit() { return compilationUnit; }
+    
     public boolean isFeasible() {
         return feasible;
     }
@@ -312,11 +359,12 @@ public class Solution {
     public boolean contains(ASTNode node) {
         return sequenceList.stream().anyMatch(s -> s.contains(node));
     }
+    
 
     @Override
     public String toString() {
         return "Solution [methodName=" + methodName + ", sequenceList=" + sequenceList + ", isFeasible=" + feasible
-                + ", fitness=" + fitness + ", reducedComplexity=" + reducedComplexity + "]";
+                + ", fitness=" + fitness + ", initialComplexity=" + initialComplexity +", reducedComplexity=" + reducedComplexity + "]";
     }
 
     public String toStringVerbose() {
@@ -326,6 +374,7 @@ public class Solution {
               .append(", sequenceList=").append(sequenceList)
               .append(", isFeasible=").append(feasible)
               .append(", fitness=").append(fitness)
+              .append(", initialComplexity=").append(initialComplexity)
               .append(", reducedComplexity=").append(reducedComplexity).append("]\n");
 
         if (this.compilationUnit != null && this.compilationUnit.getJavaElement() != null) {
@@ -337,8 +386,14 @@ public class Solution {
         for (Sequence seq : sequenceList) {
             result.append("EXTRACTION ").append(count + 1).append("\n");
             result.append("Nodes starting position: ").append(seq.toString()).append("\n");
-            result.append("OFFSET: ").append(seq.getTextRange()).append("\n");
-            result.append("CODE: ").append(seq.toSourceCodeString()).append("\n");
+            result.append("Offset: ").append(seq.getTextRange()).append("\n");
+
+            List<ASTNode> nodes = seq.getSiblingNodes();
+            boolean nested = !nodes.isEmpty()
+                    && !Utils.isEscapingExtraction(Utils.getStatementOrParent(nodes.get(0)));
+            result.append("Nested in anonymous/local class: ").append(nested).append("\n");
+
+            result.append("Code: ").append(seq.toSourceCodeString()).append("\n");
             count++;
         }
 
@@ -365,6 +420,21 @@ public class Solution {
         return extractionMetricsStats;
     }
 
+    /**
+     * True if AT LEAST ONE extraction in this solution has its code living
+     * inside a method that is itself a member of an anonymous class, or
+     * declared within a local class - see
+     * {@code CodeExtractionMetrics#isNestedInAnonymousOrLocalClass()}. A flag
+     * rather than a count: the exact number of affected extractions matters
+     * less than knowing whether the reported reduction could be understated
+     * for this specific case. Convenience delegate over
+     * {@link #getExtractionMetricsStats()}.
+     */
+    public boolean hasExtractionsNestedInAnonymousOrLocalClass() {
+        return extractionMetricsStats != null
+                && extractionMetricsStats.hasExtractionsNestedInAnonymousOrLocalClass();
+    }
+
     public void writeInFile(String absolutePathToFile) {
         try (PrintWriter pw = new PrintWriter(absolutePathToFile)) {
             pw.write(this.toStringVerbose());
@@ -380,223 +450,5 @@ public class Solution {
         return sequenceList.stream()
                 .map(Sequence::getTextRange)
                 .collect(Collectors.toList());
-    }
-
-    // -------------------------------------------------------------------------
-    // Refactoring Application Logic
-    // -------------------------------------------------------------------------
-
-    /**
-     * Interface to handle optional actions after a successful extraction (e.g., file writing).
-     */
-    @FunctionalInterface
-    private interface PostExtractionAction {
-        void execute(int extractionIndex, CompilationUnit cu) throws IOException, CoreException;
-    }
-
-    /**
-     * Applies the list of extract method refactoring operations associated to this solution.
-     *
-     * @param printDebuggingInformation true to print information during the process
-     * @return true if all extractions were performed
-     * @throws CoreException when processing undoing code extractions
-     */
-    public boolean applyExtractMethodsRefactoring(boolean printDebuggingInformation) throws CoreException {
-        try {
-            // Pass a no-op action
-            return applyExtractionsInternal(printDebuggingInformation, (index, cu) -> {});
-        } catch (IOException e) {
-            // Should not happen as the no-op action doesn't throw IOException
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    /**
-     * Applies the list of extract method refactoring operations and writes the
-     * intermediate source code to files in the specified folder.
-     *
-     * @param printDebuggingInformation true to print information during the process
-     * @param folder                    place where output files will be generated
-     * @return true if all extractions were performed
-     * @throws IOException   when processing files
-     * @throws CoreException when processing undoing code extractions
-     */
-    public boolean applyExtractMethodsRefactoringWritingExtractionsInFiles(boolean printDebuggingInformation, String folder) throws IOException, CoreException {
-        
-        // 1. Write the Original file before any modifications
-        String outputFile = compilationUnit.getJavaElement().getPath().toString();
-        outputFile = outputFile.substring(1, outputFile.length() - (".java").length());
-        outputFile = outputFile.replace(File.separatorChar, '.');
-        outputFile += "." + this.getMethodName() + ".Original.java";
-        outputFile = folder + File.separatorChar + outputFile;
-        
-        try (FileWriter fw = new FileWriter(outputFile)) {
-            fw.write(this.getMethodDeclaration().toString());
-        }
-
-        // 2. Define the action to write subsequent extraction files
-        PostExtractionAction writeAction = (index, cu) -> {
-            String stepFile = cu.getJavaElement().getPath().toString();
-            stepFile = stepFile.substring(1, stepFile.length() - (".java").length());
-            stepFile = stepFile.replace(File.separatorChar, '.');
-            // In the loop, index goes from size-1 down to 0. 
-            // So "Extraction 1" corresponds to index=size-1? 
-            // We can calculate size based on getRanges().size()
-            
-            int stepNumber = getRanges().size() - index;
-            stepFile += "." + this.methodName + ".Extraction" + stepNumber + ".java";
-            stepFile = folder + File.separatorChar + stepFile;
-
-            try (FileWriter fwStep = new FileWriter(stepFile)) {
-                // We use the new CU root to find the method signature again
-                MethodDeclarationFinderVisitor methodFinderVisitor = new MethodDeclarationFinderVisitor(
-                        cu.getRoot(), this.methodName, this.getMethodDeclaration().parameters());
-                
-                if (methodFinderVisitor.getMethodDeclaration() != null) {
-                    fwStep.write(methodFinderVisitor.getMethodDeclaration().toString());
-                } else {
-                	LOGGER.severe("Error: Could not find method " + this.methodName + " in the extracted source.");
-                }
-            }
-        };
-
-        // 3. Delegate to the internal engine
-        return applyExtractionsInternal(printDebuggingInformation, writeAction);
-    }
-
-    /**
-     * Internal engine that performs the extractions.
-     * Contains the core logic for offsets, nesting, and imports.
-     */
-    private boolean applyExtractionsInternal(boolean printDebuggingInformation, PostExtractionAction postAction) throws CoreException, IOException {
-        boolean extractionsApplied = true;
-        String currentMethodName = null;
-        CodeExtractionMetrics extractionMetrics;
-        ExtractionTextRange current = null, last = null;
-        List<ExtractionTextRange> rangesForExtractions = getRanges();
-        Stack<CodeExtractionMetrics> extractionMetricsStack = new Stack<>();
-
-        int numberImportedLibraries = compilationUnit.imports().size();
-        int lengthPreviousImportedLibraries = Utils.lengthImportDeclaration(compilationUnit);
-        int lengthImportedLibraries = lengthPreviousImportedLibraries;
-        int deltaInLengthImportedLibraries = 0;
-        int deltaInNumberImportedLibraries = 0;
-
-        if (printDebuggingInformation)
-            LOGGER.info("Extracting code " + (this.toStringForFileFormat()) + " ...");
-
-        // loop for code extractions: from back to front
-        int indexOfExtraction = rangesForExtractions.size() - 1;
-        
-        while (indexOfExtraction >= 0 && extractionsApplied) {
-            if (printDebuggingInformation) {
-            	LOGGER.info("Applying extraction " + (indexOfExtraction + 1) + " (there are " + rangesForExtractions.size() + ") ...");
-            	LOGGER.info(rangesForExtractions.get(indexOfExtraction).toString() + " ...");
-            }
-
-            current = rangesForExtractions.get(indexOfExtraction);
-
-            // Handle Nested Extractions
-            if (last != null) {
-                ASTNode lastExtractionCall = null;
-                int auxiliarLength = 0;
-                int indexOfExtractionWhenUpdatingOffsets = indexOfExtraction;
-                ExtractionTextRange currentInNextExtractions = current;
-                
-                while (indexOfExtractionWhenUpdatingOffsets >= 0) {
-                    if (printDebuggingInformation) {
-                    	LOGGER.info("Checking if " + last + " is contained in " + currentInNextExtractions);
-                    }
-
-                    if (last.isContainedIn(currentInNextExtractions)) {
-                        if (lastExtractionCall == null) {
-                            lastExtractionCall = new NodeFinder(compilationUnit, last.getStart(), 0).getCoveringNode();
-                            // Heuristic to find the correct call node
-                            while (!(lastExtractionCall instanceof SimpleName)
-                                    || ((lastExtractionCall instanceof SimpleName)
-                                            && !((SimpleName) lastExtractionCall).getIdentifier().equals(currentMethodName))) {
-                                auxiliarLength++;
-                                lastExtractionCall = new NodeFinder(compilationUnit, last.getStart() + auxiliarLength, 0).getCoveringNode();
-                                if (auxiliarLength > 1000) break; // Safety break
-                            }
-                            if (lastExtractionCall instanceof SimpleName && ((SimpleName) lastExtractionCall).getIdentifier().equals(currentMethodName))
-                                lastExtractionCall = lastExtractionCall.getParent();
-                        }
-
-                        int computedEndPosition = currentInNextExtractions.getEnd() - (last.getEnd() - last.getStart())
-                                + (lastExtractionCall.getLength()) + auxiliarLength + 1;
-                        
-                        if (deltaInNumberImportedLibraries > 0) {
-                            computedEndPosition = computedEndPosition - deltaInLengthImportedLibraries - deltaInNumberImportedLibraries;
-                        }
-                        currentInNextExtractions.setEnd(computedEndPosition);
-                    }
-                    if (indexOfExtractionWhenUpdatingOffsets > 0)
-                        currentInNextExtractions = rangesForExtractions.get(indexOfExtractionWhenUpdatingOffsets - 1);
-                    indexOfExtractionWhenUpdatingOffsets--;
-                }
-            }
-
-            // Generate Method Name
-            currentMethodName = this.methodName + "_extraction_" + (indexOfExtraction + 1);
-            currentMethodName = currentMethodName.replaceFirst("^.", currentMethodName.substring(0, 1).toLowerCase());
-            if (printDebuggingInformation) LOGGER.info("New method name = " + currentMethodName);
-
-            // Perform Extraction
-            int length = current.getEnd() - current.getStart();
-            if (printDebuggingInformation) {
-            	LOGGER.info("Extracting from " + current.getStart() + " length " + length);
-            }
-            
-            extractionMetrics = Utils.extractCode(compilationUnit, current.getStart(), length, currentMethodName, false);
-            extractionsApplied = extractionsApplied && extractionMetrics.isApplied();
-
-            if (!extractionsApplied) {
-            	LOGGER.severe("ERROR extracting sequence " + sequenceList.get(indexOfExtraction));
-            	LOGGER.severe(extractionMetrics.getReason());
-                while (!extractionMetricsStack.isEmpty())
-                    extractionMetricsStack.pop().getUndoChanges().get(0).perform(null);
-            } else {
-                extractionMetricsStack.push(extractionMetrics);
-                if (printDebuggingInformation) {
-                	LOGGER.info("Extraction applied successfully! Reloading CU.");
-                }
-                
-                // Reload AST
-                compilationUnit = Utils.createCompilationUnitFromFileInWorkspace(
-                        compilationUnit.getJavaElement().getPath().toOSString());
-                
-                // Execute Post Action (File writing)
-                if (postAction != null) {
-                    postAction.execute(indexOfExtraction, compilationUnit);
-                }
-            }
-
-            last = current;
-            indexOfExtraction--;
-
-            // Handle Import Updates
-            if (compilationUnit.imports().size() != numberImportedLibraries) {
-                if (printDebuggingInformation) LOGGER.info("Imports modified. Updating offsets...");
-                
-                lengthPreviousImportedLibraries = lengthImportedLibraries;
-                lengthImportedLibraries = Utils.lengthImportDeclaration(compilationUnit);
-                deltaInLengthImportedLibraries = lengthImportedLibraries - lengthPreviousImportedLibraries;
-                deltaInNumberImportedLibraries = compilationUnit.imports().size() - numberImportedLibraries;
-                
-                for (int index = indexOfExtraction; index >= 0; index--) {
-                    ExtractionTextRange r = rangesForExtractions.get(index);
-                    r.setStart(r.getStart() + deltaInLengthImportedLibraries + deltaInNumberImportedLibraries);
-                    r.setEnd(r.getEnd() + deltaInLengthImportedLibraries + deltaInNumberImportedLibraries);
-                }
-                numberImportedLibraries = compilationUnit.imports().size();
-            } else {
-                deltaInLengthImportedLibraries = 0;
-                deltaInNumberImportedLibraries = 0;
-            }
-        }
-
-        return extractionsApplied;
     }
 }

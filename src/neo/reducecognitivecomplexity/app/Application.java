@@ -70,8 +70,6 @@ public class Application implements IApplication {
 		
 		// Try-with-resources ensures the writer is safely closed when the app finishes
 		try (CsvResultWriter resultWriter = new CsvResultWriter(outputCsvPath)) {
-			
-			// Execution Branching
 			if (config.getCsvFilePath() != null && !config.getCsvFilePath().isEmpty()) {
 				// --- MODE BATCH CSV SCAN ---
 				LOGGER.info("Starting Batch CSV Processing Mode...");

@@ -13,11 +13,11 @@
 
 
 	<extension
-         id="applyCodeExtractions"
+         id="applySolutions"
          point="org.eclipse.core.runtime.applications">
-         <application id="ReduceCognitiveComplexity.applyCodeExtractions">
+         <application id="ReduceCognitiveComplexity.applySolutions">
          <run
-               class="neo.reducecognitivecomplexity.app.ApplyCodeExtractions">
+               class="neo.reducecognitivecomplexity.app.ApplySolutions">
          </run>
          </application>
    </extension>

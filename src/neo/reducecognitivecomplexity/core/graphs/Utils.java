@@ -396,7 +396,10 @@ public class Utils {
 		int nesting = (int) ast.getProperty(Constants.ACCUMULATED_NESTING_COGNITIVE_COMPLEXITY);
 		int contributors = (int) ast.getProperty(Constants.NUMBER_OF_NESTING_CONTRIBUTORS);
 
-		return new ExtractionVertex(startPos, endPos, inherent + nesting, inherent, nesting, contributors, 0);
+		// The root vertex represents the "true" method itself (i=0), so it is
+		// never "nested" by definition - it IS the outer context everything
+		// else is measured against.
+		return new ExtractionVertex(startPos, endPos, inherent + nesting, inherent, nesting, contributors, 0, false, false);
 	}
 
 	/**

@@ -235,7 +235,7 @@ public class Constants {
 		// Parse the working memory in megabytes, defaulting to 2048 MB (2 GB) if not found
 	    int workingMemory = 2028;
 	    try {
-	    	Integer.parseInt(props.getProperty("working.memory", "2048"));
+	    	workingMemory = Integer.parseInt(props.getProperty("working.memory", "2048"));
 	    } catch (NumberFormatException e) {
 	    	LOGGER.severe("Invalid working memory value in config. Using default: 2048");
 		}
@@ -244,7 +244,7 @@ public class Constants {
 		// Parse the time limit in seconds, defaulting to 300 seconds if not found
 	    int timeLimit = 300;
 	    try {
-	    	Integer.parseInt(props.getProperty("time.limit", "300"));
+	    	timeLimit = Integer.parseInt(props.getProperty("time.limit", "300"));
 	    } catch (NumberFormatException e) {
 			LOGGER.severe("Invalid time limit value in config. Using default: 300");
 		}

@@ -22,6 +22,26 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 	private final int numberNestingContributors; 
 	private final int nesting; // Nesting level (0-based)
 
+	/**
+	 * True if the code this vertex represents lives inside a method that is
+	 * itself a member of an anonymous class, or declared within a local class
+	 * (a class declared inside a method/block body). See
+	 * {@link neo.reducecognitivecomplexity.core.jdt.Utils#isEscapingExtraction(ASTNode)}
+	 * and the detailed explanation in the javadoc of
+	 * {@link neo.reducecognitivecomplexity.core.jdt.Utils#computeMetricsIfExtracted(ASTNode)}: in that case, JDT
+	 * places the newly extracted method as a SIBLING within that same
+	 * anonymous/local class rather than as an independent member of the
+	 * enclosing (true) class, so {@code reductionOfCognitiveComplexity} above
+	 * only reflects the LOCAL nesting reduction, not a full removal.
+	 */
+	private final boolean nestedInAnonymousOrLocalClass;
+
+	/**
+	 * True if this vertex's own root node is the {@code elseStatement} of an
+	 * external {@code IfStatement} not part of this same extraction.
+	 */
+	private final boolean chainingContinuationOfExternalParent;
+
 	// Temporal values used during solver execution
 	private Integer temporalAccumulatedInherentComponent;
 	private Integer temporalAccumulatedNestingComponent;
@@ -29,7 +49,8 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 
 	public ExtractionVertex(int initialOffset, int endOffset, int reductionOfCognitiveComplexity, 
 			int accumulatedInherentComponent, int accumulatedNestingComponent, 
-			int numberNestingContributors, int nesting) {
+			int numberNestingContributors, int nesting, boolean nestedInAnonymousOrLocalClass,
+			boolean chainingContinuationOfExternalParent) {
 		this.initialOffset = initialOffset;
 		this.endOffset = endOffset;
 		this.reductionOfCognitiveComplexity = reductionOfCognitiveComplexity;
@@ -37,6 +58,8 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 		this.accumulatedNestingComponent = accumulatedNestingComponent;
 		this.numberNestingContributors = numberNestingContributors;
 		this.nesting = nesting;
+		this.nestedInAnonymousOrLocalClass = nestedInAnonymousOrLocalClass;
+		this.chainingContinuationOfExternalParent = chainingContinuationOfExternalParent;
 	}
 
 	// =========================================================================
@@ -57,6 +80,14 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 
 	public int getNesting() {
 		return nesting;
+	}
+
+	public boolean isNestedInAnonymousOrLocalClass() {
+		return nestedInAnonymousOrLocalClass;
+	}
+
+	public boolean isChainingContinuationOfExternalParent() {
+		return chainingContinuationOfExternalParent;
 	}
 
 	/**
@@ -151,12 +182,14 @@ public class ExtractionVertex implements Comparable<ExtractionVertex> {
 
 	@Override
 	public String toString() {
-		return String.format("[%d, %d] (%d, %d, %d, %d, %d)",
+		return String.format("[%d, %d] (%d, %d, %d, %d, %d, nested=%b, chainCont=%b)",
 				initialOffset, endOffset, 
 				reductionOfCognitiveComplexity,
 				accumulatedInherentComponent,
 				accumulatedNestingComponent,
 				numberNestingContributors,
-				nesting);
+				nesting,
+				nestedInAnonymousOrLocalClass,
+				chainingContinuationOfExternalParent);
 	}
 }

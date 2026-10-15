@@ -1,0 +1,59 @@
+A, B, feasible, reason, parameters, extractedLOC, reductionCC, extractedMethodCC, accumulatedInherentComponent, accumulatedNestingComponent, numberNestingContributors, nesting, nestedInAnonymousOrLocalClass, runtime
+45782, 47083, 1, "OK", 0, 18, 12, 8, 5, 3, 4, 1, 0, 32
+47157, 47462, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 14
+47555, 47668, 1, "OK", 0, 3, 2, 1, 1, 0, 1, 1, 0, 35
+47935, 48175, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 3, 2, 2, 0, 1, 1, 0, 21
+42794, 48827, 1, "OK", 1, 121, 44, 44, 20, 24, 16, 0, 0, 32
+44890, 45687, 1, "OK", 0, 8, 8, 5, 3, 2, 3, 1, 0, 32
+47514, 47668, 1, "OK", 0, 4, 2, 1, 1, 0, 1, 1, 0, 31
+45760, 47128, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 12, 8, 5, 3, 4, 1, 0, 14
+48245, 48795, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 6, 4, 3, 1, 2, 1, 0, 13
+44239, 44722, 1, "OK", 0, 7, 8, 5, 3, 2, 3, 1, 0, 32
+46735, 46837, 1, "OK", 0, 1, 3, 1, 1, 0, 1, 2, 0, 35
+47220, 47417, 1, "OK", 0, 5, 2, 1, 1, 0, 1, 1, 0, 31
+47555, 47781, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 13
+48326, 48711, 1, "OK", 1, 8, 6, 4, 3, 1, 2, 1, 0, 31
+47179, 47417, 1, "OK", 0, 6, 2, 1, 1, 0, 1, 1, 0, 31
+46126, 46905, 0, "Ambiguous return value: Selected block modifies more than one local variable used in subsequent code. Affected variables are:  BigInteger bigInt2 long longValue", 0, 0, 6, 2, 2, 0, 2, 2, 0, 14
+47514, 47781, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 13
+44067, 44171, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 14
+48454, 48634, 0, "Section contains break statement but not the parent statement it belongs to.", 0, 0, 4, 2, 2, 0, 1, 2, 0, 14
+48245, 48711, 1, "OK", 0, 9, 6, 4, 3, 1, 2, 1, 0, 32
+47220, 47333, 1, "OK", 0, 3, 2, 1, 1, 0, 1, 1, 0, 31
+45865, 46072, 1, "OK", 0, 5, 3, 1, 1, 0, 1, 2, 0, 32
+45782, 47110, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 12, 8, 5, 3, 4, 1, 0, 14
+45820, 46072, 1, "OK", 0, 6, 3, 1, 1, 0, 1, 2, 0, 31
+44890, 45714, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 8, 5, 3, 2, 3, 1, 0, 13
+47179, 47333, 1, "OK", 0, 4, 2, 1, 1, 0, 1, 1, 0, 32
+48326, 48768, 1, "OK", 1, 9, 6, 4, 3, 1, 2, 1, 0, 33
+47854, 48148, 1, "OK", 0, 6, 3, 2, 2, 0, 1, 1, 0, 36
+46735, 46994, 1, "OK", 1, 3, 3, 1, 1, 0, 1, 2, 0, 32
+44868, 45732, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 8, 5, 3, 2, 3, 1, 0, 14
+47220, 47444, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 14
+48396, 48634, 0, "Section contains break statement but not the parent statement it belongs to.", 0, 0, 4, 2, 2, 0, 1, 2, 0, 13
+47832, 48193, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 3, 2, 2, 0, 1, 1, 0, 13
+47179, 47444, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 13
+46126, 47061, 1, "OK", 0, 9, 6, 2, 2, 0, 2, 2, 0, 32
+48326, 48795, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 6, 4, 3, 1, 2, 1, 0, 13
+45865, 45986, 1, "OK", 0, 3, 3, 1, 1, 0, 1, 2, 0, 32
+44890, 45619, 1, "OK", 0, 7, 8, 5, 3, 2, 3, 1, 0, 33
+47854, 48175, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 3, 2, 2, 0, 1, 1, 0, 13
+44217, 44837, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 8, 5, 3, 2, 3, 1, 0, 13
+48326, 48656, 1, "OK", 1, 7, 6, 4, 3, 1, 2, 1, 0, 35
+46735, 46905, 1, "OK", 0, 2, 3, 1, 1, 0, 1, 2, 0, 31
+46126, 46837, 0, "Ambiguous return value: Selected block modifies more than one local variable used in subsequent code. Affected variables are:  BigInteger bigInt1 long longValue", 0, 0, 6, 2, 2, 0, 2, 2, 0, 13
+44239, 44792, 1, "OK", 0, 8, 8, 5, 3, 2, 3, 1, 0, 32
+46126, 46710, 1, "OK", 0, 5, 3, 1, 1, 0, 1, 2, 0, 32
+47935, 48148, 1, "OK", 1, 5, 3, 2, 2, 0, 1, 1, 0, 33
+47492, 47799, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 16
+44045, 44189, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 2, 1, 1, 0, 1, 1, 0, 14
+47514, 47754, 1, "OK", 0, 6, 2, 1, 1, 0, 1, 1, 0, 31
+48245, 48656, 1, "OK", 0, 8, 6, 4, 3, 1, 2, 1, 0, 32
+44239, 44819, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 8, 5, 3, 2, 3, 1, 0, 13
+45820, 45986, 1, "OK", 0, 4, 3, 1, 1, 0, 1, 2, 0, 34
+46735, 47061, 1, "OK", 1, 4, 3, 1, 1, 0, 1, 2, 0, 31
+46126, 46994, 1, "OK", 0, 8, 6, 2, 2, 0, 2, 2, 0, 31
+48223, 48813, 0, "Selection contains branch statement but corresponding branch target (or the complete loop body) is not selected.", 0, 0, 6, 4, 3, 1, 2, 1, 0, 13
+44067, 44144, 1, "OK", 0, 1, 2, 1, 1, 0, 1, 1, 0, 32
+48245, 48768, 1, "OK", 0, 10, 6, 4, 3, 1, 2, 1, 0, 32
+47555, 47754, 1, "OK", 0, 5, 2, 1, 1, 0, 1, 1, 0, 32

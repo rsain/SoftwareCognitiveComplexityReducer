@@ -35,10 +35,6 @@ public class GraphService {
 	public static GraphBundle buildGraphs(RefactoringCache cache, MethodDeclaration ast) {
 		LOGGER.info("Building dependency and conflict graphs...");
 
-		// Identify the root vertex corresponding to the method body
-		ExtractionVertex root = Utils.getRootForGraphAssociatedToMethodBody(ast);
-		LOGGER.info("Graph root identified: " + root.toString());
-
 		GraphBundle bundle = new GraphBundle();
 
 		// Populate the graphs via the cache's logic.

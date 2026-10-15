@@ -3,6 +3,8 @@ package neo.reducecognitivecomplexity.app;
 import java.util.ArrayList;
 import java.util.List;
 
+import neo.reducecognitivecomplexity.core.solvers.SolverType;
+
 /**
  * Represents the runtime configuration settings for the application.
  * <p>
@@ -132,7 +134,7 @@ public class Config {
 
 		// Handle Full Project Scan Mode
 		if (positionalArgs.size() == 1) {
-			return new Config(positionalArgs.get(0), null, false, true, null);
+			return new Config(positionalArgs.get(0), SolverType.ILP.name(), false, true, null);
 		} else if (positionalArgs.size() == 2) {
 			return new Config(positionalArgs.get(0), parseSolverArg(positionalArgs.get(1)), false, true, null);
 		} else if (positionalArgs.size() >= 3) {

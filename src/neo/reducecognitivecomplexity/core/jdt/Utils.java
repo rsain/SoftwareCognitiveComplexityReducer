@@ -342,14 +342,10 @@ public class Utils {
 	            } else {
 	                feasible = false;
 	                resultOfRefactoring = status.getEntryWithHighestSeverity().getMessage();
-	                LOGGER.log(Level.WARNING, "Final conditions failed for method {0} ([{1}, {2}]): {3}", 
-	                        new Object[]{targetMethodName, selectionStart, selectionEnd, resultOfRefactoring});
 	            }
 	        } else {
 	            feasible = false;
 	            resultOfRefactoring = status.getEntryWithHighestSeverity().getMessage();
-	            LOGGER.log(Level.WARNING, "Initial conditions failed for method {0} ([{1}, {2}]): {3}", 
-	                    new Object[]{targetMethodName, selectionStart, selectionEnd, resultOfRefactoring});
 	        }
 
 	    } catch (Exception e) {
@@ -540,6 +536,31 @@ public class Utils {
 	}
 
 	/**
+	 * Finds all {@link MethodDeclaration} nodes within an AST matching a given method name.
+	 *
+	 * @param astRoot    The root {@link CompilationUnit} to search in.
+	 * @param methodName The target method name.
+	 * @return A list of matching {@link MethodDeclaration} nodes.
+	 */
+	public static List<MethodDeclaration> findMethodsByName(CompilationUnit astRoot, String methodName) {
+	    List<MethodDeclaration> matchingMethods = new ArrayList<>();
+	    if (astRoot == null || methodName == null) {
+	        return matchingMethods;
+	    }
+	    
+	    astRoot.accept(new ASTVisitor() {
+	        @Override
+	        public boolean visit(MethodDeclaration node) {
+	            if (methodName.equals(node.getName().getIdentifier())) {
+	                matchingMethods.add(node);
+	            }
+	            return true;
+	        }
+	    });
+	    return matchingMethods;
+	}
+	
+	/**
 	 * Calculates number of lines of code for a selection range.
 	 */
 	public static int numberOfLinesOfCode(ICompilationUnit unit, int start, int length) {
@@ -711,16 +732,54 @@ public class Utils {
 		while (result != null && !(result instanceof MethodDeclaration)) {
 			result = result.getParent();
 
-			// Special handling: if we hit a method inside an anonymous class,
-			// we look upwards.
+			// Special handling: if we hit a method that is a member of an
+			// anonymous class OR declared within a LOCAL class (a class
+			// declared inside a method/block body), we look further upwards.
+			//
+			// Methods members of an anonymous OR declared within a local class
+			// are NEVER analyzed on their own because their complexity is always
+			// aggregated into whichever OUTER, independently-analyzed method's
+			// AST walk reaches them. JDT's ExtractMethodRefactoring also
+			// places newly extracted methods as siblings WITHIN that same
+			// anonymous/local class (it stops at the nearest
+			// AbstractTypeDeclaration or AnonymousClassDeclaration, and a
+			// local class's TypeDeclaration IS an AbstractTypeDeclaration),
+			// so the new method never escapes it either. For BOTH reasons,
+			// the "true" method that owns this code's reported complexity is
+			// the OUTER one, not the anonymous/local class's own method.
+			// The same situation for both, so both must be skipped here
+			// consistently.
 			if (result instanceof MethodDeclaration) {
-				if (result.getParent() instanceof AnonymousClassDeclaration) {
+				if (isMemberOfAnonymousOrLocalClass((MethodDeclaration) result)) {
 					result = result.getParent();
 				}
 			}
 		}
 
 		return (MethodDeclaration) result;
+	}
+
+	/**
+	 * {@code true} if {@code method} is a direct member of an
+	 * {@link AnonymousClassDeclaration}, OR declared within a local class
+	 * (a {@link org.eclipse.jdt.core.dom.TypeDeclaration} reached via a
+	 * {@code Block} or {@code MethodDeclaration} body, as opposed to a
+	 * top-level or regular nested/member type).
+	 */
+	private static boolean isMemberOfAnonymousOrLocalClass(MethodDeclaration method) {
+		if (method.getParent() instanceof AnonymousClassDeclaration) {
+			return true;
+		}
+		ASTNode parent = method.getParent();
+		while (parent != null) {
+			if (parent instanceof org.eclipse.jdt.core.dom.TypeDeclaration
+					&& (parent.getParent() instanceof org.eclipse.jdt.core.dom.Block
+							|| parent.getParent() instanceof MethodDeclaration)) {
+				return true;
+			}
+			parent = parent.getParent();
+		}
+		return false;
 	}
 
 	/**
@@ -890,30 +949,138 @@ public class Utils {
 	}
 
 	/**
+	 * Determines whether {@code node} occupies a structural position in its
+	 * parent that this codebase's own nesting rules ({@link #computeNesting})
+	 * treat as a "chaining continuation" of the parent's own construct, i.e. a
+	 * position where the parent's own complexity computation did NOT attribute
+	 * an extra, position-specific contribution to the parent itself, because it
+	 * expected {@code node} to carry that contribution on its own (as is the
+	 * case for an "else if", represented in the JDT AST as an {@link IfStatement}
+	 * sitting in its parent's {@code ELSE_STATEMENT_PROPERTY} slot).
+	 * <p>
+	 * This matters for extraction metrics: if {@code node} is the ROOT of a
+	 * code extraction and its parent is NOT included in that extraction, then
+	 * after extraction the parent still has a non-empty branch at that exact
+	 * slot (now containing a call to the newly extracted method instead of
+	 * {@code node}'s original content). Under this codebase's own cognitive
+	 * complexity rules, a non-empty slot at that position contributes the same
+	 * flat, nesting-independent amount regardless of what fills it -so that
+	 * contribution does NOT disappear from the original method just because
+	 * {@code node} itself did. Extraction metrics must not count it as removed.
+	 * </p>
+	 */
+	public static boolean isChainingContinuationOfParent(ASTNode node) {
+		if (node == null) {
+			return false;
+		}
+		ASTNode parent = node.getParent();
+		if (parent == null) {
+			return false;
+		}
+		StructuralPropertyDescriptor location = node.getLocationInParent();
+		if (location == null) {
+			return false;
+		}
+
+		if (parent instanceof IfStatement && location.equals(IfStatement.ELSE_STATEMENT_PROPERTY)) {
+			return node instanceof IfStatement;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Simulates the Cognitive Complexity metrics that would result if the given AST
 	 * node (and its children) were extracted into a separate method.
 	 * <p>
-	 * This method calculates the complexity of the code block <i>as if</i> it were
-	 * at the top level of a new method. It achieves this by:
+	 * This method answers TWO distinct questions, which are NOT always the same:
+	 * </p>
 	 * <ol>
-	 * <li>Determining the current base nesting level of the node.</li>
-	 * <li>Iterating through all complexity-contributing descendants.</li>
-	 * <li>Removing the penalty of the current base nesting level from their
-	 * scores.</li>
+	 * <li><b>How complex would the new method be, on its own?</b> (the
+	 * {@code accumulatedInherent}/{@code accumulatedNesting}/
+	 * {@code cognitiveComplexityWhenExtractedAsNewMethod} fields), computed as if
+	 * {@code node} became the top-level body of a brand new, independent method,
+	 * with nesting reset to 0 relative to itself.</li>
+	 * <li><b>How much does the ORIGINAL (true) method's own reported complexity
+	 * actually decrease?</b> (the {@code cognitiveComplexityReduction} field).</li>
 	 * </ol>
-	 * * @param node The AST node (usually a Block or Statement) representing the
-	 * code to be extracted.
-	 * 
+	 * <p>
+	 * For a NORMAL extraction, {@code node} living directly in the body of the
+	 * method being refactored, with no anonymous/local class boundary in
+	 * between, both questions have the SAME answer: the new method becomes a
+	 * fully independent, disconnected member of the class, which
+	 * {@link CognitiveComplexityVisitor#methodComplexity(MethodDeclaration)}
+	 * never visits again when (re-)analyzing the original method, so its full
+	 * contribution truly disappears.
+	 * </p>
+	 * <p>
+	 * However, when {@code node} lives inside a method that is ITSELF a member
+	 * of an anonymous (or local) class, e.g. extracting code from inside a
+	 * listener's callback method, {@link ExtractMethodRefactoring} always places
+	 * the new method in the NEAREST enclosing TYPE, which is that SAME
+	 * anonymous/local class, as a SIBLING of the method the code was extracted
+	 * from. That sibling remains a descendant of the SAME AST subtree that the
+	 * "true" method (see {@link #getMethodDeclaration(ASTNode)}) is rooted at,
+	 * because the anonymous class expression itself lives inside the true
+	 * method's own body. Since
+	 * {@link CognitiveComplexityVisitor#visit(MethodDeclaration)} costs 0 and
+	 * does not change the nesting level, and since
+	 * {@link CognitiveComplexityVisitor} deliberately does NOT analyze methods
+	 * that are members of an anonymous class on their own (see
+	 * {@code shouldAnalyzeMethod}/{@code isMemberOfAnonymousClass}), the ONLY
+	 * place this new sibling method's content is ever measured is by walking
+	 * INTO it from the true method (exactly as the true method's analysis
+	 * already walked into the method the code came from). So none of that
+	 * content actually leaves the true method's aggregate score: it merely
+	 * moves to a sibling position, which shares the SAME "ambient" nesting
+	 * level that its neighbour already had (the level stamped on the immediate
+	 * enclosing method itself, since entering a MethodDeclaration never adds
+	 * nesting). Only the LOCAL nesting accumulated by control-flow structures
+	 * STRICTLY BETWEEN the immediate enclosing method's own body and the
+	 * extraction root, the ones that stay behind, no longer wrapping the
+	 * (now relocated) code, truly disappears from the true method's score.
+	 * </p>
+	 * <p>
+	 * <b>This also affects question (1) for the SAME nested case</b>: since the
+	 * relocated code keeps sharing the ambient nesting level of its new
+	 * siblings rather than resetting to a fresh, independent depth of 0, its
+	 * own projected complexity as the new method (NMCC) must ALSO add back
+	 * that ambient level for every node that pays a nesting penalty:
+	 * {@code NMCC_nested = inherent + projectedNesting + ambientLevel * numberOfNestingContributors},
+	 * instead of the plain {@code inherent + projectedNesting} that is correct
+	 * only for an escaping extraction.
+	 * </p>
+	 *
+	 * @param node The AST node (usually a Block or Statement) representing the
+	 *             code to be extracted.
 	 * @return A {@link CognitiveComplexityMetrics} object containing the projected
-	 *         complexity stats for the hypothetical new method.
+	 *         complexity stats for the hypothetical new method, and the TRUE
+	 *         reduction achieved on the original method being refactored.
 	 */
 	public static CognitiveComplexityMetrics computeMetricsIfExtracted(ASTNode node) {
 		if (node == null) {
 			return new CognitiveComplexityMetrics(0, 0, 0, 0, 0, 0);
 		}
 
-		// 1. Base Level: The nesting level of the extraction root in the original code.
+		// 1. Base Level: the nesting level of the extraction root in the original
+		// code, relative to the "true" method being refactored. Used to compute
+		// how complex the new method would be ON ITS OWN (question (1) above);
+		// for the nested-in-anonymous/local-class case this is only PART of the
+		// answer (see comment further below).
 		int baseLevel = getIntegerPropertyOfNode(node, Constants.NESTING_LEVEL);
+
+		// 2. Ambient Level: only relevant for question (2) above. Determines
+		// whether this extraction ESCAPES the true method's own AST subtree
+		// (the normal case) or stays nested within it via an intervening
+		// anonymous/local class (see the class-level javadoc above).
+		MethodDeclaration immediateEnclosingMethod = getImmediateEnclosingMethodDeclaration(node);
+		boolean extractionEscapesTrueMethod = isEscapingExtraction(node);
+
+		int ambientLevel = extractionEscapesTrueMethod ? 0
+				: computeAmbientLevelForMethod(immediateEnclosingMethod);
+		// How much LOCAL nesting (above the ambient level shared with sibling
+		// methods of the same anonymous/local class) truly disappears.
+		int shift = Math.max(0, baseLevel - ambientLevel);
 
 		List<ASTNode> complexityNodes = new ArrayList<>();
 		collectComplexityNodes(node, complexityNodes);
@@ -928,33 +1095,46 @@ public class Utils {
 			int currentLevel = getIntegerPropertyOfNode(cn, Constants.NESTING_LEVEL);
 			boolean paysPenalty = paysNestingPenalty(cn);
 
-			// 2. Calculate Inherent (Original) Complexity
+			// 3. Calculate Inherent (Original) Complexity - unchanged.
 			int currentNestingCost = paysPenalty ? currentLevel : 0;
 			int inherent = contribution - currentNestingCost;
 
-			// 3. Calculate Projected (New) Complexity
-			// Calculate depth relative to the new method root (0-based)
+			// 4. Calculate Projected (New) Complexity, PER NODE, relative to the
+			// extraction root's OWN level (reset to 0). This alone is only correct
+			// for an ESCAPING extraction; for the nested-in-anonymous/local-class
+			// case it is later corrected below (after this loop) by adding back
+			// the ambient level shared by sibling methods of that class.
 			int newDepth = Math.max(0, currentLevel - baseLevel);
 			int projectedNestingCost = paysPenalty ? newDepth : 0;
 			int projectedNodeComplexity = inherent + projectedNestingCost;
 
-			// 4. Update Totals
-			totalReduction += contribution;
+			// 5. Calculate the TRUE reduction of the ORIGINAL method's score.
+			int reductionForThisNode;
+			if (extractionEscapesTrueMethod) {
+				// Normal case: the new method becomes fully independent and
+				// disconnected from the true method's AST subtree, so its whole
+				// original contribution truly disappears.
+				reductionForThisNode = contribution;
+			} else {
+				// Nested-in-anonymous/local-class case: the inherent part and the
+				// ambient nesting part remain (the sibling method is still walked
+				// into when the true method is re-analyzed); only the LOCAL nesting
+				// above the ambient level truly disappears, and only for nodes that
+				// actually pay a nesting penalty.
+				reductionForThisNode = paysPenalty ? shift : 0;
+			}
+
+			// 6. Update Totals
+			totalReduction += reductionForThisNode;
 			totalInherent += inherent;
 			totalNewComplexity += projectedNodeComplexity;
 
-			// 5. Update Nesting Contributor Count
+			// 7. Update Nesting Contributor Count (unchanged: about the new
+			// method's own internal nesting structure).
 			if (paysPenalty) {
-				// CASE A: Deep nodes (Children/Inner Loops)
-				// These always pay a nesting cost in the new method.
 				if (newDepth > 0) {
 					numberOfNestingContributors++;
-				}
-				// CASE B: Surface nodes (Root, Catch, Else, etc.)
-				// These are at the top level of the new method (Depth 0).
-				// They only contribute to the nesting count if the *original* context was
-				// nested.
-				else if (baseLevel > 0) {
+				} else if (baseLevel > 0) {
 					numberOfNestingContributors++;
 				}
 			}
@@ -962,8 +1142,114 @@ public class Utils {
 
 		int totalProjectedNesting = totalNewComplexity - totalInherent;
 
+		// the new method does NOT actually reset to depth 0 when it
+		// cannot escape the true method (anonymous/local class case). It
+		// lands as a sibling starting at the SAME ambient level shared by
+		// every other method of that class. Every node that pays a nesting
+		// penalty therefore ALSO carries that ambient level as extra nesting
+		// cost in the new method, on top of the "reset relative to baseLevel"
+		// depth already summed above.
+		if (!extractionEscapesTrueMethod) {
+			int ambientBonus = ambientLevel * numberOfNestingContributors;
+			totalProjectedNesting += ambientBonus;
+			totalNewComplexity += ambientBonus;
+		}
+
 		return new CognitiveComplexityMetrics(totalInherent, totalProjectedNesting, totalNewComplexity, totalReduction,
 				numberOfNestingContributors, baseLevel);
+	}
+
+	/**
+	 * Finds the NEAREST enclosing {@link MethodDeclaration} of {@code node},
+	 * WITHOUT the "skip anonymous class methods" special handling that
+	 * {@link #getMethodDeclaration(ASTNode)} applies. This is the method whose
+	 * structural position JDT's {@code ExtractMethodRefactoring} actually uses
+	 * to decide where a newly extracted method would be placed (the nearest
+	 * enclosing TYPE, reached by walking up from here).
+	 */
+	private static MethodDeclaration getImmediateEnclosingMethodDeclaration(ASTNode node) {
+		ASTNode current = node.getParent();
+		while (current != null && !(current instanceof MethodDeclaration)) {
+			current = current.getParent();
+		}
+		return (MethodDeclaration) current;
+	}
+
+	/**
+	 * Computes the "ambient" nesting level shared by ALL sibling statements
+	 * directly inside {@code method}'s own body, i.e. the nesting level any
+	 * statement in that method would have if it added nothing extra on top
+	 * of the method's own position in the original source.
+	 * <p>
+	 * We cannot simply read a {@code NESTING_LEVEL} property off
+	 * {@code method}'s own {@link MethodDeclaration} node:
+	 * {@code CognitiveComplexityVisitor} never sets one there.
+	 * This matters especially for methods that are
+	 * members of an anonymous or local class, since those are never independently visited either - their
+	 * content is measured only as part of the outer TRUE method's own walk,
+	 * which is exactly why an "ambient" reference level is needed here in
+	 * the first place.
+	 * </p>
+	 * <p>
+	 * This is derived empirically: the MINIMUM
+	 * {@code NESTING_LEVEL} among all complexity-contributing nodes found
+	 * anywhere in {@code method}'s body. Since nesting levels only ever
+	 * increase going deeper, the shallowest level actually recorded
+	 * anywhere in the method necessarily belongs to a node at the method's
+	 * own starting depth, correctly reflecting the method's own ambient
+	 * level regardless of how deeply the anonymous/local class itself is
+	 * nested in the true method.
+	 * </p>
+	 */
+	private static int computeAmbientLevelForMethod(MethodDeclaration method) {
+		if (method == null || method.getBody() == null) {
+			return 0;
+		}
+
+		List<ASTNode> nodesInMethod = new ArrayList<>();
+		collectComplexityNodes(method.getBody(), nodesInMethod);
+
+		int min = Integer.MAX_VALUE;
+		for (ASTNode n : nodesInMethod) {
+			int level = getIntegerPropertyOfNode(n, Constants.NESTING_LEVEL);
+			if (level < min) {
+				min = level;
+			}
+		}
+
+		// No complexity-contributing statements found in the method at all
+		// (degenerate case, e.g. an empty or trivial anonymous method): no
+		// "ambient" siblings to compete with, 0 is a safe, harmless default.
+		return min == Integer.MAX_VALUE ? 0 : min;
+	}
+
+	/**
+	 * {@code true} when extracting {@code node} would produce a method that
+	 * becomes fully independent of the "true" method being refactored (the
+	 * normal case), or {@code false} when it would remain nested inside an
+	 * anonymous/local class that the true method's own AST subtree already
+	 * contains.
+	 * <p>
+	 * Callers reasoning about combining or comparing the reduction figures of
+	 * several sequences (e.g. {@code Solution}'s parent/child nesting
+	 * adjustment) MUST consult this before assuming a sequence's
+	 * {@code CodeExtractionMetrics.reductionOfCognitiveComplexity} behaves
+	 * like a straightforward sum of its descendants' contributions: that is
+	 * only true when this method returns {@code true} for the sequence's own
+	 * root node. When it returns {@code false}, the reduction already
+	 * reflects a uniform per-subtree "shift" that does NOT double-count
+	 * anything a nested sibling sequence might also independently extract,
+	 * and must NOT be further adjusted by subtracting a nested sequence's own
+	 * reduction from it.
+	 * </p>
+	 */
+	public static boolean isEscapingExtraction(ASTNode node) {
+		if (node == null) {
+			return true;
+		}
+		MethodDeclaration immediateEnclosingMethod = getImmediateEnclosingMethodDeclaration(node);
+		MethodDeclaration trueMethod = getMethodDeclaration(node);
+		return immediateEnclosingMethod == null || immediateEnclosingMethod.equals(trueMethod);
 	}
 
 	private static void collectComplexityNodes(ASTNode node, List<ASTNode> result) {

@@ -16,7 +16,8 @@ Require-Bundle: org.eclipse.core.runtime;bundle-version="3.16.0",
  org.eclipse.text,
  junit-jupiter-api,
  org.eclipse.jdt.core.manipulation,
- org.eclipse.jdt.launching;bundle-version="3.24.0"
+ org.eclipse.jdt.launching;bundle-version="3.24.0",
+ org.eclipse.core.filebuffers;bundle-version="3.8.500"
 Bundle-Activator: neo.reducecognitivecomplexity.app.Activator
 Import-Package: org.eclipse.core.resources
 Bundle-ClassPath: lib/jgrapht-1.5.0/lib/jgrapht-core-1.5.0.jar,

@@ -42,7 +42,7 @@ public class CsvResultWriter implements AutoCloseable {
 			csvWriter = new PrintWriter(new FileWriter(filePath));
 			// Write the header row
 			csvWriter.println(
-					"project,sourceFolder,package,class,method,lineNumber,complexity,effort,msecForRefactoringCache");
+					"project,sourceFolder,package,class,method,lineNumber,complexity,effort,msecForRefactoringCache,hasNestedInAnonymousOrLocalClassExtraction");
 		} catch (IOException e) {
 			LOGGER.severe("Failed to initialize CSV: " + e.getMessage());
 		}
@@ -65,6 +65,36 @@ public class CsvResultWriter implements AutoCloseable {
 	 */
 	public void writeResult(CompilationUnitPathExtractor.PathComponents components, MethodComplexityRecord r,
 			long runtime) {
+		writeResult(components, r, runtime, (Boolean) null);
+	}
+
+	/**
+	 * Writes a single method's analysis result to the CSV file, including
+	 * whether AT LEAST ONE of its candidate extractions is nested inside an
+	 * anonymous or local class.
+	 * A flag rather than a count: what matters is simply whether this method's
+	 * reported figures could be affected by the anonymous/local-class case at
+	 * all.
+	 * <p>
+	 * This method also calculates the <b>remediation effort</b> (Technical Debt)
+	 * required to refactor the method, based on the constants defined in
+	 * {@link Constants}.
+	 * </p>
+	 *
+	 * @param components               object containing the path details
+	 *                                 (project, package, file) of the method
+	 * @param r                        the complexity record containing the
+	 *                                 method name, line number, and
+	 *                                 complexity score
+	 * @param runtime                  the time (in milliseconds) it took to
+	 *                                 generate the refactoring cache for this
+	 *                                 method
+	 * @param hasNestedExtractions     {@code true}/{@code false} if known, or
+	 *                                 {@code null} if unknown/not computed
+	 *                                 (written as an empty cell).
+	 */
+	public void writeResult(CompilationUnitPathExtractor.PathComponents components, MethodComplexityRecord r,
+			long runtime, Boolean hasNestedExtractions) {
 		if (csvWriter == null)
 			return;
 
@@ -73,10 +103,12 @@ public class CsvResultWriter implements AutoCloseable {
 				Constants.INITIAL_EFFORT_IN_MINUTES_FOR_CC_ISSUE,
 				Constants.LINEAR_EFFORT_INCREMENT_IN_MINUTES_FOR_CC_ISSUE);
 
+		String hasNestedExtractionsCell = hasNestedExtractions == null ? "" : (hasNestedExtractions ? "1" : "0");
+
 		// Write the row
-		csvWriter.printf("%s,%s,%s,%s,%s,%d,%d,%d,%d\n", components.getProjectName(), components.getSourceFolder(),
+		csvWriter.printf("%s,%s,%s,%s,%s,%d,%d,%d,%d,%s\n", components.getProjectName(), components.getSourceFolder(),
 				components.getPackageDirectory(), components.getFileName(), r.methodName, r.lineNumber, r.complexity,
-				effort, runtime);
+				effort, runtime, hasNestedExtractionsCell);
 
 		csvWriter.flush();
 	}

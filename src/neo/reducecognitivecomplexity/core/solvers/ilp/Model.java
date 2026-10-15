@@ -186,16 +186,112 @@ public class Model<V extends ExtractionVertex, E> {
             
             for (ExtractionVertex ancestor : ancestors) {
                 int indexJ = vertexToIndexMap.get(ancestor);
-                
-                // Calculate penalty/adjustment if both I and J are extracted
-                int sum = ancestor.getAccumulatedInherentComponent() + ancestor.getAccumulatedNestingComponent();
-                int distance = Utils.getNestingDistanceBetweenVertices(
-                        (SimpleDirectedGraph<ExtractionVertex, E>) this.graphNoConflicts, 
-                        sortedVertices.get(indexJ), 
-                        vertexI
-                );
+
+                // Calculate penalty/adjustment if both I and J are extracted.
+                //
+                // The ORIGINAL formula was:
+                //
+                //   sum(j,i) = ancestor.getComplexityWhenExtracted()
+                //              + (ancestor.getNesting() - vertexI.getNesting()) * contributors_j
+                //            = [ancestor.getComplexityWhenExtracted() + ancestor.getNesting() * contributors_j]
+                //              - vertexI.getNesting() * contributors_j
+                //
+                // The bracketed part is algebraically EQUAL to
+                // ancestor.getReductionOfCognitiveComplexity(), but only under
+                // the "escaping" extraction case (see the javadoc of
+                // Utils#computeMetricsIfExtracted): for an "escaping" ancestor,
+                // every nesting-paying node's original nesting cost exceeds its
+                // projected (post-extraction) nesting cost by EXACTLY
+                // ancestor.getNesting() (its own baseLevel), so summing that
+                // constant over ancestor.getNumberNestingContributors() nodes
+                // recovers exactly the gap between "new method complexity" and
+                // "true reduction".
+                //
+                // For a "nested" ancestor (its own extraction site lives inside
+                // an anonymous/local class), that gap is instead
+                // (ancestor.getNesting() - ambientLevel) per contributing node,
+                // NOT ancestor.getNesting() alone, the old bracketed
+                // reconstruction did not know about "ambientLevel" (it predates
+                // that distinction) and so it OVERESTIMATED the bracketed term
+                // for nested ancestors, letting this constraint accept
+                // combinations that do not truly reach the target complexity
+                // once i=0 (the method root) is
+                // considered.
                 int contributors = ancestor.getNumberNestingContributors();
-                sum += distance * contributors;
+                int distance = ancestor.getNesting() - vertexI.getNesting();
+
+                int sum;
+                if (i == 0) {
+                    // i=0 is the TRUE METHOD ROOT. Term A
+                    // here is the method's REAL initial complexity (read
+                    // directly from the real CognitiveComplexityVisitor
+                    // properties), so Term B must represent the REAL
+                    // reduction achieved by extracting the ancestor (which
+                    // DOES depend on whether the ancestor escapes the true
+                    // method or remains nested inside an anonymous/local
+                    // class (see Utils#isEscapingExtraction). Since
+                    // vertexI.getNesting() == 0 here by construction, "distance"
+                    // reduces to ancestor.getNesting() alone, and this formula
+                    // is algebraically identical to
+                    // ancestor.getReductionOfCognitiveComplexity() whenever
+                    // the ancestor escapes (no regression for the common
+                    // case).
+                    sum = ancestor.getReductionOfCognitiveComplexity();
+                } else {
+                    // i != 0: Term A (vertexI.getComplexityWhenExtracted())
+                    // is a purely LOCAL/structural quantity ("how complex
+                    // would vertex i be if extracted on its own"), computed
+                    // relative to vertex i's OWN base level. It is computed
+                    // the SAME way regardless of whether vertex i itself
+                    // escapes the true method or not (that distinction only
+                    // matters for reductionOfCognitiveComplexity, which
+                    // answers a DIFFERENT question ("how much does this
+                    // reduce the TRUE method"). So Term B here must likewise
+                    // stay purely local: how much of ancestor's contribution
+                    // to vertex i's OWN complexity-when-extracted disappears
+                    // when ancestor is ALSO extracted.
+                    //
+                    // BUT this "purely local" reasoning silently assumed
+                    // ancestor itself ESCAPES normally. When ancestor is
+                    // instead NESTED inside an anonymous/local class,
+                    // that assumption breaks: extracting ancestor to a
+                    // SIBLING method within that same anonymous/local class
+                    // does NOT remove its content from whatever "true"
+                    // context aggregates that class's methods. Using the standard
+                    // "complexityWhenExtracted + distance*contributors"
+                    // formula in this case wrongly assumes ancestor's content
+                    // fully disappears when extracted, hugely OVER-crediting
+                    // the reduction.
+                    if (ancestor.isNestedInAnonymousOrLocalClass()) {
+                        sum = ancestor.getReductionOfCognitiveComplexity();
+                    } else {
+                        // Ancestor escapes normally: the ORIGINAL formula,
+                        // unrelated to the escaping/nested distinction.
+                        sum = ancestor.getComplexityWhenExtracted() + distance * contributors;
+
+                        // if ancestor's OWN root is itself
+                        // the elseStatement of an external IfStatement NOT
+                        // part of ancestor's own extraction,
+                        // then that external predecessor, which, whenever
+                        // this Z_ji term actually fires (no intermediate k
+                        // selected), ends up remaining directly inside
+                        // vertex i's OWN body, transitions from a plain
+                        // "else if" (no bonus) into a brand-new genuine
+                        // terminal "else { call(); }" as a side effect of
+                        // extracting ancestor. That transition creates a +1
+                        // contribution that did NOT exist anywhere in the
+                        // original, pre-extraction AST, so it is not
+                        // captured by ancestor.getComplexityWhenExtracted()
+                        // at all (which only reflects ancestor's OWN,
+                        // pre-existing content). This +1 is a genuine GAIN
+                        // on vertex i's own complexity, equivalent to
+                        // subtracting 1 LESS via Term B, i.e. reducing "sum"
+                        // by 1.
+                        if (ancestor.isChainingContinuationOfExternalParent()) {
+                            sum -= 1;
+                        }
+                    }
+                }
 
                 // Subtract the interaction term: -Sum * Z_ji
                 expr.addTerm(-sum, getZVariable(indexJ, i));
