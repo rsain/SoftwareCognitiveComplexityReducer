@@ -1137,7 +1137,7 @@ public class SavedSolutionProcessor {
         summary.append("==================================================================================\n");
         summary.append(" [SOLUTIONS / REFACTORINGS (.results)]\n");
         summary.append(String.format("  Total solutions      : %d\n", metrics.totalSolutions));
-        summary.append(String.format("  Successed (100% OK)  : %d (%.2f%%)\n", metrics.successfulSolutions, solSuccessPct));
+        summary.append(String.format("  Successed (100%% OK)  : %d (%.2f%%)\n", metrics.successfulSolutions, solSuccessPct));
         summary.append(String.format("  Failed               : %d (%.2f%%)\n", metrics.failedSolutions, solFailurePct));
         summary.append("----------------------------------------------------------------------------------\n");
         summary.append(" [ALL EXTRACTIONS]\n");
